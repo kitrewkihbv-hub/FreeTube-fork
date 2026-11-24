@@ -229,98 +229,112 @@ jobs:
       if: startsWith(matrix.os, 'windows') && startsWith(matrix.runtime, 'win-x64')
       with:
         name: freetube-${{ steps.versionNumber.outputs.version }}-setup-x64.exe
-        path: build/freetube Setup ${{ steps.versionNumber.outputs.version }}.exe
+        if-no-files-found: error
+        path: build/MacTube Setup ${{ steps.versionNumber.outputs.version }}.exe
 
     - name: Upload Windows x64 Portable Artifact
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 #v7.0.2
       if: startsWith(matrix.os, 'windows') && startsWith(matrix.runtime, 'win-x64')
       with:
         name: freetube-${{ steps.versionNumber.outputs.version }}-win-x64-portable.exe
-        path: build/freetube ${{ steps.versionNumber.outputs.version }}.exe
+        if-no-files-found: error
+        path: build/MacTube ${{ steps.versionNumber.outputs.version }}.exe
 
     - name: Upload Windows x64 .zip Artifact
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 #v7.0.2
       if: startsWith(matrix.os, 'windows') && startsWith(matrix.runtime, 'win-x64')
       with:
         name: freetube-${{ steps.versionNumber.outputs.version }}-win-x64-portable.zip
-        path: build/freetube-${{ steps.versionNumber.outputs.version }}-win.zip
+        if-no-files-found: error
+        path: build/MacTube-${{ steps.versionNumber.outputs.version }}-win.zip
 
     - name: Upload Windows x64 .7z Artifact
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 #v7.0.2
       if: startsWith(matrix.os, 'windows') && startsWith(matrix.runtime, 'win-x64')
       with:
         name: freetube-${{ steps.versionNumber.outputs.version }}-win-x64-portable.7z
-        path: build/freetube-${{ steps.versionNumber.outputs.version }}-win.7z
+        if-no-files-found: error
+        path: build/MacTube-${{ steps.versionNumber.outputs.version }}-win.7z
 
     - name: Upload Windows arm64 .exe Artifact
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 #v7.0.2
       if: startsWith(matrix.os, 'windows') && startsWith(matrix.runtime, 'win-arm64')
       with:
         name: freetube-${{ steps.versionNumber.outputs.version }}-setup-arm64.exe
-        path: build/freetube Setup ${{ steps.versionNumber.outputs.version }}.exe
+        if-no-files-found: error
+        path: build/MacTube Setup ${{ steps.versionNumber.outputs.version }}.exe
 
     - name: Upload Windows arm64 Portable Artifact
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 #v7.0.2
       if: startsWith(matrix.os, 'windows') && startsWith(matrix.runtime, 'win-arm64')
       with:
         name: freetube-${{ steps.versionNumber.outputs.version }}-win-arm64-portable.exe
-        path: build/freetube ${{ steps.versionNumber.outputs.version }}.exe
+        if-no-files-found: error
+        path: build/MacTube ${{ steps.versionNumber.outputs.version }}.exe
 
     - name: Upload Windows arm64 .zip Artifact
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 #v7.0.2
       if: startsWith(matrix.os, 'windows') && startsWith(matrix.runtime, 'win-arm64')
       with:
         name: freetube-${{ steps.versionNumber.outputs.version }}-win-arm64-portable.zip
-        path: build/freetube-${{ steps.versionNumber.outputs.version }}-arm64-win.zip
+        if-no-files-found: error
+        path: build/MacTube-${{ steps.versionNumber.outputs.version }}-arm64-win.zip
 
     - name: Upload Windows arm64 .7z Artifact
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 #v7.0.2
       if: startsWith(matrix.os, 'windows') && startsWith(matrix.runtime, 'win-arm64')
       with:
         name: freetube-${{ steps.versionNumber.outputs.version }}-win-arm64-portable.7z
-        path: build/freetube-${{ steps.versionNumber.outputs.version }}-arm64-win.7z
+        if-no-files-found: error
+        path: build/MacTube-${{ steps.versionNumber.outputs.version }}-arm64-win.7z
 
     - name: Upload Mac x64 .dmg Artifact
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 #v7.0.2
       if: startsWith(matrix.os, 'macos') && startsWith(matrix.runtime, 'osx-x64')
       with:
         name: freetube-${{ steps.versionNumber.outputs.version }}-mac-x64.dmg
-        path: build/freetube-${{ steps.versionNumber.outputs.version }}.dmg
+        if-no-files-found: error
+        path: build/MacTube-${{ steps.versionNumber.outputs.version }}.dmg
 
     - name: Upload Mac x64 .zip Artifact
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 #v7.0.2
       if: startsWith(matrix.os, 'macos') && startsWith(matrix.runtime, 'osx-x64')
       with:
         name: freetube-${{ steps.versionNumber.outputs.version }}-mac-x64.zip
-        path: build/freetube-${{ steps.versionNumber.outputs.version }}-mac.zip
+        if-no-files-found: error
+        path: build/MacTube-${{ steps.versionNumber.outputs.version }}-mac.zip
 
     - name: Upload Mac x64 .7z Artifact
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 #v7.0.2
       if: startsWith(matrix.os, 'macos') && startsWith(matrix.runtime, 'osx-x64')
       with:
         name: freetube-${{ steps.versionNumber.outputs.version }}-mac-x64.7z
-        path: build/freetube-${{ steps.versionNumber.outputs.version }}-mac.7z
+        if-no-files-found: error
+        path: build/MacTube-${{ steps.versionNumber.outputs.version }}-mac.7z
 
     - name: Upload Mac arm64 .dmg Artifact
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 #v7.0.2
       if: startsWith(matrix.os, 'macos') && startsWith(matrix.runtime, 'osx-arm64')
       with:
         name: freetube-${{ steps.versionNumber.outputs.version }}-mac-arm64.dmg
-        path: build/freetube-${{ steps.versionNumber.outputs.version }}-arm64.dmg
+        if-no-files-found: error
+        path: build/MacTube-${{ steps.versionNumber.outputs.version }}-arm64.dmg
 
     - name: Upload Mac arm64 .zip Artifact
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 #v7.0.2
       if: startsWith(matrix.os, 'macos') && startsWith(matrix.runtime, 'osx-arm64')
       with:
         name: freetube-${{ steps.versionNumber.outputs.version }}-mac-arm64.zip
-        path: build/freetube-${{ steps.versionNumber.outputs.version }}-arm64-mac.zip
+        if-no-files-found: error
+        path: build/MacTube-${{ steps.versionNumber.outputs.version }}-arm64-mac.zip
 
     - name: Upload Mac arm64 .7z Artifact
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 #v7.0.2
       if: startsWith(matrix.os, 'macos') && startsWith(matrix.runtime, 'osx-arm64')
       with:
         name: freetube-${{ steps.versionNumber.outputs.version }}-mac-arm64.7z
-        path: build/freetube-${{ steps.versionNumber.outputs.version }}-arm64-mac.7z
+        if-no-files-found: error
+        path: build/MacTube-${{ steps.versionNumber.outputs.version }}-arm64-mac.7z
 
     - name: Save pnpm cache
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 #v6.1.0
