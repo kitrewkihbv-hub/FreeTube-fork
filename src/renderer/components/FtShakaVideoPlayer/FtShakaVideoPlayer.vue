@@ -140,6 +140,7 @@ import { LegacyQualitySelection } from './player-components/LegacyQualitySelecti
 import { ScreenshotButton } from './player-components/ScreenshotButton.js'
 import { StatsButton } from './player-components/StatsButton.js'
 import { TheatreModeButton } from './player-components/TheatreModeButton.js'
+import { VideoSizeButton } from './player-components/VideoSizeButton.js'
 import { AutoplayToggle } from './player-components/AutoplayToggle.js'
 import { SkipButton } from './player-components/SkipButton.js'
 
@@ -1779,6 +1780,29 @@ function registerTheatreModeButton() {
   shakaOverflowMenu.registerElement('ft_theatre_mode', new TheatreModeButtonFactory())
 }
 
+function registerVideoSizeButton() {
+  /**
+   * @implements {shaka.extern.IUIElement.Factory}
+   */
+  class VideoSizeButtonFactory {
+    create(rootElement, controls) {
+      return new VideoSizeButton(
+        () => store.getters.getVideoPlayerSize,
+        (size) => {
+          store.dispatch('updateVideoPlayerSize', size)
+          events.dispatchEvent(new CustomEvent('videoSizeChanged'))
+        },
+        events,
+        rootElement,
+        controls
+      )
+    }
+  }
+
+  shakaControls.registerElement('ft_video_size', new VideoSizeButtonFactory())
+  shakaOverflowMenu.registerElement('ft_video_size', new VideoSizeButtonFactory())
+}
+
 function registerFullWindowButton() {
   events.addEventListener('setFullWindow', (/** @type {CustomEvent} */ event) => {
     if (event.detail) {
@@ -2754,6 +2778,7 @@ onMounted(async () => {
   registerAutoplayToggle()
 
   registerTheatreModeButton()
+  registerVideoSizeButton()
   registerFullWindowButton()
   registerLegacyQualitySelection()
   registerStatsButton()

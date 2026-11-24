@@ -2,6 +2,19 @@
   <FtSettingsSection
     :title="t('Settings.Player Settings.Player Settings')"
   >
+    <FtFlexBox>
+      <FtSlider
+        :label="t('Settings.Player Settings.Video Player Size')"
+        :default-value="videoPlayerSize"
+        :min-value="VIDEO_PLAYER_SIZE.MIN"
+        :max-value="VIDEO_PLAYER_SIZE.MAX"
+        :step="VIDEO_PLAYER_SIZE.STEP"
+        :tooltip="t('Tooltips.Player Settings.Video Player Size')"
+        value-extension="%"
+        @change="updateVideoPlayerSize"
+      />
+    </FtFlexBox>
+    <br>
     <div class="switchColumnGrid">
       <div class="switchColumn">
         <FtToggleSwitch
@@ -584,6 +597,22 @@ const maxVideoPlaybackRate = computed(() => store.getters.getMaxVideoPlaybackRat
  */
 function updateMaxVideoPlaybackRate(value) {
   store.dispatch('updateMaxVideoPlaybackRate', value)
+}
+
+const VIDEO_PLAYER_SIZE = {
+  MIN: 50,
+  MAX: 100,
+  STEP: 5
+}
+
+/** @type {import('vue').ComputedRef<number>} */
+const videoPlayerSize = computed(() => store.getters.getVideoPlayerSize)
+
+/**
+ * @param {number} value
+ */
+function updateVideoPlayerSize(value) {
+  store.dispatch('updateVideoPlayerSize', value)
 }
 
 /** @type {import('vue').ComputedRef<boolean>} */

@@ -235,6 +235,9 @@ const state = {
   landingPage: 'subscriptions',
   listType: 'grid',
   maxVideoPlaybackRate: 3,
+  // How large the video player is on the watch page, as a percentage of the
+  // largest size that still fits the window (the default is that largest size)
+  videoPlayerSize: 100,
   onlyShowLatestFromChannel: false,
   onlyShowLatestFromChannelNumber: 1,
   openDeepLinksInNewWindow: false,
@@ -425,6 +428,12 @@ const sideEffectHandlers = {
     if (state.defaultPlayback !== correctedDefaultPlaybackRate) {
       dispatch('updateDefaultPlayback', correctedDefaultPlaybackRate)
     }
+  },
+
+  videoPlayerSize: (_, value) => {
+    // 100% means "as large as fits the window", which is the largest size,
+    // so the player is scaled down from there
+    document.documentElement.style.setProperty('--video-player-scale', String(value / 100))
   },
 }
 

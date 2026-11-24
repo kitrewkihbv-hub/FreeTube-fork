@@ -163,7 +163,6 @@
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
-
 import GeneralSettings from '../../components/GeneralSettings/GeneralSettings.vue'
 import AccountSettings from '../../components/AccountSettings/AccountSettings.vue'
 import ThemeSettings from '../../components/ThemeSettings.vue'
@@ -186,6 +185,8 @@ import FtInput from '../../components/FtInput/FtInput.vue'
 import FtSettingsMenu from '../../components/FtSettingsMenu/FtSettingsMenu.vue'
 import { ctrlFHandler, debounce } from '../../helpers/utils'
 
+import { useRoute } from 'vue-router'
+
 import store from '../../store/index'
 
 const USING_ELECTRON = !!process.env.IS_ELECTRON
@@ -193,6 +194,7 @@ const SETTINGS_MOBILE_WIDTH_THRESHOLD = 1015
 const SETTINGS_SEARCH_DEBOUNCE_MS = 150
 
 const { locale, t } = useI18n()
+const route = useRoute()
 
 const isInDesktopView = ref(true)
 const settingsSectionTypeOpenInMobile = ref(null)
@@ -407,6 +409,26 @@ function handleMounted() {
 
   // mark first section as active before any scrolling has taken place
   activeSection.value = settingsSectionComponents.value[0].type
+
+  scrollToRequestedSection()
+}
+
+/**
+ * Opens the section that other parts of the app link to with `?section=`.
+ * This lets the account entry in the side navigation go straight to the sign in button.
+ */
+function scrollToRequestedSection() {
+  const sectionType = route.query.section
+
+  if (typeof sectionType !== 'string' || sectionType === '') return
+
+  const sectionExists = settingsSectionComponents.value.some((section) => section.type === sectionType)
+
+  if (!sectionExists) return
+
+  nextTick(() => {
+    navigateToSection(sectionType)
+  })
 }
 
 function refreshSearchEntries() {

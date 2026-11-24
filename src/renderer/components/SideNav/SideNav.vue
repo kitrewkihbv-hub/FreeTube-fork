@@ -161,10 +161,31 @@
         </p>
       </router-link>
       <router-link
+        v-if="!isSignedInToYouTubeAccount"
+        class="navOption mobileShow accountNavOption"
+        role="button"
+        :to="{ path: '/settings', query: { section: 'account' } }"
+        :title="$t('Settings.Account Settings.Sign In')"
+      >
+        <div class="thumbnailContainer">
+          <FontAwesomeIcon
+            class="navIcon accountNavIcon"
+            :class="applyNavIconExpand"
+            :icon="['fas', 'right-to-bracket']"
+          />
+        </div>
+        <p
+          v-if="isOpen"
+          class="navLabel"
+        >
+          {{ $t('Settings.Account Settings.Sign In') }}
+        </p>
+      </router-link>
+      <router-link
         v-if="isSignedInToYouTubeAccount"
         class="navOption mobileShow accountNavOption"
         role="button"
-        to="/settings"
+        :to="{ path: '/settings', query: { section: 'account' } }"
         :title="youTubeAccountName"
       >
         <div class="thumbnailContainer">

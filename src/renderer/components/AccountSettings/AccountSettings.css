@@ -123,3 +123,7 @@
 .signInStatusIcon {
   color: var(--primary-color);
 }
+
+.accountLoading {
+  block-size: 60px;
+}

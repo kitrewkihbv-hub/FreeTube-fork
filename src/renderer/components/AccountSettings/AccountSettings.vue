@@ -11,7 +11,7 @@
     <template v-else>
       <FtLoader
         v-if="!accountRestored"
-        fullscreen
+        class="accountLoading"
       />
       <div
         v-if="isSignedIn"
@@ -80,7 +80,7 @@
       </FtFlexBox>
 
       <FtFlexBox
-        v-if="accountRestored && !isSignedIn"
+        v-if="!isSignedIn"
         class="settingsFlexStart460px"
       >
         <FtButton

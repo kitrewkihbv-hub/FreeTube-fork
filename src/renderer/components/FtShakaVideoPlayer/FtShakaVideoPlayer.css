@@ -183,6 +183,12 @@
   display: none;
 }
 
+/* The video always fills the window in fullscreen and full window mode, so resizing it makes no sense there */
+.ftVideoPlayer:fullscreen :deep(.video-size-button),
+.fullWindow :deep(.video-size-button) {
+  display: none;
+}
+
 .fullWindow {
   position: absolute !important;
   max-width: initial !important;
@@ -210,7 +216,8 @@
 }
 
 @media only screen and (width <=1350px) {
-  :deep(.theatre-button) {
+  :deep(.theatre-button),
+  :deep(.video-size-button) {
     display: none;
   }
 }

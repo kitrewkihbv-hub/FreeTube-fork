@@ -519,6 +519,7 @@ Settings:
     Default Volume: Default Volume
     Default Playback Rate: Default Playback Rate
     Max Video Playback Rate: Max Video Playback Rate
+    Video Player Size: Video Player Size
     Video Playback Rate Interval: Video Playback Rate Interval
     Default Media Format:
       Default Media Format: Default Media Format
@@ -1020,6 +1021,7 @@ Video:
     Autoplay is on: Autoplay is on
     Theatre Mode: Theater Mode
     Exit Theatre Mode: Exit Theater Mode
+    Video Size: 'Video size: {size}%'
     Full Window: Full Window
     Exit Full Window: Exit Full Window
     Take Screenshot: Take Screenshot
@@ -1156,6 +1158,9 @@ Tooltips:
     Open Deep Links In New Window: URLs passed to FreeTube, such as by redirect
       browser extensions or command line arguments, are opened in a new window.
   Player Settings:
+    Video Player Size: How large the video is on the watch page, compared to the largest
+      size that fits the window. Lower it if you want more of the page visible while
+      watching.
     Proxy Videos Through Invidious: Will connect to Invidious to serve videos instead
       of making a direct connection to YouTube.
     Default Media Format: Set the formats used when a video plays. DASH formats can
