@@ -4,13 +4,13 @@ const fs = require('node:fs')
 const vm = require('node:vm')
 const rawSource = fs.readFileSync('src/renderer/helpers/api/youtubeAccountRawFeed.js', 'utf8').replaceAll('export function', 'function')
 const discoverySource = fs.readFileSync('src/renderer/helpers/api/discoveryFeed.js', 'utf8').replaceAll('export function', 'function')
-const activity = fs.readFileSync('src/renderer/helpers/api/youtubeAccountActivity.js', 'utf8').replace('export async function', 'async function')
+const activity = fs.readFileSync('src/renderer/helpers/api/youtubeAccountActivity.js', 'utf8').replaceAll('export async function', 'async function')
 const local = fs.readFileSync('src/renderer/helpers/api/local.js', 'utf8')
 function extract(startText, endText) {
   const start = local.indexOf(startText)
   const end = local.indexOf(endText, start)
   assert.ok(start >= 0 && end > start)
-  return local.slice(start, end).replace('export async function', 'async function').replace('export function', 'function')
+  return local.slice(start, end).replaceAll('export async function', 'async function').replace('export function', 'function')
 }
 const functions = [
   extract('export async function getYouTubeAccountActivityFeed()', '\n/**'),

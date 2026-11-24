@@ -462,6 +462,21 @@ export function createYouTubeAccountRawFeed(response, actions) {
 }
 
 /**
+ * Extract the recommendations area of a watch-next response without collecting
+ * videos from the current video, comments, navigation, or unrelated menus.
+ * @param {object} response Raw InnerTube response or Actions.execute wrapper
+ * @returns {object[]}
+ */
+export function getYouTubeRelatedVideoItems(response) {
+  const data = getRawResponseData(response)
+  const web = data?.contents?.twoColumnWatchNextResults?.secondaryResults
+  const mobile = data?.contents?.singleColumnWatchNextResults
+  const roots = [web, mobile?.pivot, mobile?.results?.results?.contents].filter(Boolean)
+  const records = getRendererRecords(roots, 'video')
+  return records.map(makeRawVideoItem)
+}
+
+/**
  * Returns the raw renderer attached to an item made by createYouTubeAccountRawFeed.
  * @param {object|undefined} item
  * @returns {object|undefined}

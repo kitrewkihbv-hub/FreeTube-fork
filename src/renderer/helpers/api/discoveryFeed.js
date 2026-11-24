@@ -76,14 +76,36 @@ export function createInterestSearch({ search, next }) {
   }
 }
 
-/** Browse home recommendations and related searches based only on watched titles. */
-export function createDiscoveryBrowser({ open, search, getHistory = () => [], kind = 'discover', timeoutMs = 12000 }) {
+/** Pick watched videos as related-video seeds, falling back to prior recommendations. */
+export function getRecommendationSeeds(history, recommendations, offset = 0) {
+  const recent = (Array.isArray(history) ? history : []).slice(0, 100)
+    .filter(item => typeof item?.videoId === 'string' && /^[A-Za-z0-9_-]{11}$/.test(item.videoId))
+  const counts = new Map()
+  for (const item of recent) {
+    const key = item.authorId || item.author || item.videoId
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  const ranked = recent.map((item, index) => ({ item, index, weight: counts.get(item.authorId || item.author || item.videoId) ?? 1 }))
+    .sort((a, b) => b.weight - a.weight || a.index - b.index)
+    .map(({ item }) => item.videoId)
+  const candidates = [...ranked, ...(Array.isArray(recommendations) ? recommendations : []).map(item => item.videoId)]
+    .filter(id => typeof id === 'string' && /^[A-Za-z0-9_-]{11}$/.test(id))
+  const unique = Array.from(new Set(candidates)).slice(0, 40)
+  if (!unique.length) return []
+  return Array.from({ length: Math.min(2, unique.length) }, (_, i) => unique[(offset + i) % unique.length])
+}
+
+/** Browse home, watched-title searches, and related videos from relevant seeds. */
+export function createDiscoveryBrowser({ open, search, related, getHistory = () => [], kind = 'discover', timeoutMs = 12000 }) {
   let currentFeed = null
   let pool = []
   let recentIds = []
   let queryOffset = 0
+  let seedOffset = 0
+  const shownIds = new Set()
   let homeAvailable = true
   let limited = false
+  let newCount = null
 
   async function readHome() {
     const startedAt = Date.now()
@@ -126,16 +148,21 @@ export function createDiscoveryBrowser({ open, search, getHistory = () => [], ki
     if (search) {
       for (const query of queries) sources.push(withTimeout(Promise.resolve().then(() => search(query)), timeoutMs))
     }
+    if (related) {
+      const seeds = getRecommendationSeeds(history, pool, seedOffset)
+      seedOffset += seeds.length
+      for (const seed of seeds) sources.push(withTimeout(Promise.resolve().then(() => related(seed)), timeoutMs))
+    }
     const settled = await Promise.allSettled(sources)
     const home = settled[0]
     if (home.status === 'fulfilled') currentFeed = home.value.feed
     homeAvailable = home.status === 'fulfilled' && home.value.videos.length > 0
     const homeVideos = home.status === 'fulfilled' ? home.value.videos : []
-    const related = settled.slice(1).flatMap(result => result.status === 'fulfilled' ? result.value ?? [] : [])
+    const relatedVideos = settled.slice(1).flatMap(result => result.status === 'fulfilled' ? result.value ?? [] : [])
     const watched = new Set(history.map(item => item.videoId).filter(Boolean))
     const valid = video => video?.type === 'video' && video.videoId && !watched.has(video.videoId)
     const homeResults = homeVideos.filter(valid)
-    const relatedResults = related.filter(valid)
+    const relatedResults = relatedVideos.filter(valid)
     if (!homeResults.length && !relatedResults.length) throw new Error('No readable recommendations were returned.')
 
     // Preserve YouTube's ranking and blend in related results without drowning it out.
@@ -151,10 +178,9 @@ export function createDiscoveryBrowser({ open, search, getHistory = () => [], ki
       return true
     }).slice(0, 300)
 
-    const previousIds = new Set(recentIds.flat())
     const lastIds = new Set(recentIds[0] ?? [])
-    const unseen = pool.filter(video => !previousIds.has(video.videoId))
-    const older = pool.filter(video => previousIds.has(video.videoId) && !lastIds.has(video.videoId))
+    const unseen = pool.filter(video => !shownIds.has(video.videoId))
+    const older = pool.filter(video => shownIds.has(video.videoId) && !lastIds.has(video.videoId))
     const repeated = pool.filter(video => lastIds.has(video.videoId))
     limited = recentIds.length > 0 && unseen.length === 0
 
@@ -170,9 +196,14 @@ export function createDiscoveryBrowser({ open, search, getHistory = () => [], ki
       repeated.splice(0, repeated.length, ...combined.slice(shift), ...combined.slice(0, shift))
     }
     const next = [...unseen, ...older, ...repeated].slice(0, 36)
+    newCount = recentIds.length ? next.filter(video => !shownIds.has(video.videoId)).length : null
+    for (const video of next) {
+      shownIds.add(video.videoId)
+      if (shownIds.size > 1000) shownIds.delete(shownIds.values().next().value)
+    }
     recentIds = [next.map(video => video.videoId), ...recentIds].slice(0, 3)
     return next
   }
 
-  return { refresh, getStatus: () => ({ homeAvailable, limited }) }
+  return { refresh, getStatus: () => ({ homeAvailable, limited, newCount }) }
 }

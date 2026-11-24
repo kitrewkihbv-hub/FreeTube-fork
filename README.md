@@ -4,7 +4,7 @@ MacTube is an experimental fork of [FreeTube](https://github.com/FreeTubeApp/Fre
 
 ### What's in this preview
 
-- **Discover:** use YouTube home recommendations and related videos based on recent watch history. Watched video titles may be sent to YouTube as searches; refresh can still repeat videos if results are limited.
+- **Discover:** use YouTube home recommendations and related videos based on recent watch history. Video titles and IDs may be sent to YouTube to find related suggestions; refresh can still repeat videos if results are limited.
 - **Subscriptions:** keep subscribed-channel videos separate from discovery. Use local subscriptions or the signed-in YouTube feed; imports can be partial.
 - **Live video:** watch available live streams and use the existing live-chat viewer. The separate Live discovery tab has been removed.
 - **Make it yours:** choose app colors with the palette, switch light/dark themes, select a startup tab, and adjust video width and height independently.

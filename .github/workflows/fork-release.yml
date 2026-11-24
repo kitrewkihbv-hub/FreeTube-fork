@@ -106,7 +106,7 @@ jobs:
           Build of the `arena/64591193-freetube-with-account` branch, from Build run ${{ steps.target.outputs.run_id }}.
 
           Changes in this build:
-          - Discover refresh reads more recommendation and history-related search pages; it reports when only older suggestions are available.
+          - Discover refresh also requests YouTube related videos for watched or previously recommended videos, and reports new versus previously shown suggestions.
           - Signed-in YouTube home recommendations and watch-history-related searches remain separate from subscriptions.
           - Subscriptions load more feed pages and can supplement a small feed with uploads from subscribed channels.
           - Removes the dedicated Live discovery tab; live video and chat remain available.

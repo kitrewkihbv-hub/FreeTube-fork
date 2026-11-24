@@ -18,6 +18,7 @@ import {
   createYouTubeAccountRawFeed,
   getYouTubeAccountRawItem,
   getYouTubeAccountRawText,
+  getYouTubeRelatedVideoItems,
 } from './youtubeAccountRawFeed'
 import { getYouTubeAccountSubscriptionTabs } from './youtubeAccountSubscriptions'
 import { loadAccountActivity } from './youtubeAccountActivity'
@@ -1859,6 +1860,36 @@ export async function openDiscoveryFeed(kind, safetyMode = false, signedIn = fal
     }
   }
   throw new Error('Unable to load YouTube discovery videos.', { cause: errors.at(-1) })
+}
+
+/**
+ * Fetch related recommendations for a watched or previously recommended video.
+ * This sends its video ID to YouTube using a public client; it does not request
+ * a player stream or change local or account watch history.
+ * @param {string} videoId
+ * @param {boolean} safetyMode
+ * @returns {Promise<object[]>}
+ */
+export async function getLocalRelatedRecommendations(videoId, safetyMode = false) {
+  if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) throw new Error('Invalid video ID')
+  let lastError
+  for (const clientType of [ClientType.TV, ClientType.WEB]) {
+    try {
+      const client = await createInnertube({
+        clientType,
+        safetyMode,
+        ...(clientType === ClientType.TV ? { userAgent: TV_CLIENT_USER_AGENT } : {}),
+      })
+      const response = await client.actions.execute('/next', { videoId })
+      const videos = parseYouTubeAccountFeedItems(getYouTubeRelatedVideoItems(response))
+        .filter(video => video.videoId !== videoId)
+      if (videos.length) return videos
+    } catch (error) {
+      lastError = error
+    }
+  }
+  if (lastError) throw lastError
+  return []
 }
 
 // #endregion YouTube account

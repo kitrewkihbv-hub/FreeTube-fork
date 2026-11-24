@@ -8,7 +8,7 @@ const local = fs.readFileSync('src/renderer/helpers/api/local.js', 'utf8')
 function extract(startText, endText) {
   const start = local.indexOf(startText), end = local.indexOf(endText, start)
   assert.ok(start >= 0 && end > start)
-  return local.slice(start, end).replace('export async function', 'async function').replace('export function', 'function')
+  return local.slice(start, end).replaceAll('export async function', 'async function').replace('export function', 'function')
 }
 const functions = [
   extract('function getYouTubeAccountFeedArray(', '\n/**'),
@@ -81,6 +81,36 @@ const page = n => ({ videos: Array.from({ length: 5 }, (_, i) => video(n * 5 + i
   await expired('topic')
   assert.equal((await expired('topic'))[0].videoId, 'id200', 'an expired cursor falls back to a fresh search')
 
+  // A fixed home/search feed should still get genuinely different videos by
+  // requesting YouTube's related section for different watched videos.
+  const watched = ['seed0000001', 'seed0000002', 'seed0000003', 'seed0000004']
+    .map((videoId, index) => ({ videoId, title: `Interest ${index}`, authorId: 'frequent' }))
+  const anchors = []
+  const relatedBrowser = makeBrowser({
+    open: async () => ({ videos: [{ ...video(1), videoId: 'home0000001' }] }),
+    getHistory: () => watched,
+    related: async seed => { anchors.push(seed); return [{ ...video(1), videoId: seed.replace('seed', 'rel_') }] },
+  })
+  const relatedFirst = await relatedBrowser.refresh()
+  const relatedSecond = await relatedBrowser.refresh()
+  assert.deepEqual(anchors, ['seed0000001', 'seed0000002', 'seed0000003', 'seed0000004'])
+  assert.ok(relatedSecond.some(v => !relatedFirst.some(old => old.videoId === v.videoId)), 'refresh brings in new related videos')
+  assert.equal(relatedBrowser.getStatus().newCount, 2)
+  for (let i = 0; i < 5; i++) await relatedBrowser.refresh()
+  assert.equal(relatedBrowser.getStatus().limited, true, 'older results never become new again after three refreshes')
+  assert.equal(relatedBrowser.getStatus().newCount, 0)
+
+  const fallbackAnchors = []
+  const noHistoryWithRelated = makeBrowser({
+    open: async () => ({ videos: [{ ...video(1), videoId: 'home0000001' }] }),
+    related: async seed => { fallbackAnchors.push(seed); return [{ ...video(2), videoId: 'more0000001' }] },
+  })
+  await noHistoryWithRelated.refresh()
+  assert.equal(fallbackAnchors.length, 0)
+  const personalizedFallback = await noHistoryWithRelated.refresh()
+  assert.deepEqual(fallbackAnchors, ['home0000001'], 'without watch history, use an existing recommendation rather than an unrelated topic')
+  assert.ok(personalizedFallback.some(v => v.videoId === 'more0000001'))
+
   const stuck = makeBrowser({ open: () => new Promise(() => {}), search, getHistory: () => history, timeoutMs: 15 })
   assert.ok((await stuck.refresh()).length > 0)
   let releaseHome
@@ -129,6 +159,28 @@ const page = n => ({ videos: Array.from({ length: 5 }, (_, i) => video(n * 5 + i
   const home = await vm.runInContext("openDiscoveryFeed('discover', true)", ctx)
   assert.equal(requests[0][1], 'FEwhat_to_watch')
   assert.equal(home.videos.length, 2)
+
+  // Exercise actual raw recommendation extraction, excluding primary content.
+  const relatedResponse = {
+    data: { contents: { twoColumnWatchNextResults: {
+      results: { results: { contents: [{ videoRenderer: { videoId: 'unrelated01', title: { simpleText: 'primary' } } }] } },
+      secondaryResults: { secondaryResults: { results: [
+        { compactVideoRenderer: { videoId: 'related0001', title: { simpleText: 'related' } } },
+        { compactVideoRenderer: { videoId: 'related0001', title: { simpleText: 'duplicate' } } },
+      ] } },
+    } } },
+  }
+  const nextRequests = []
+  ctx.createInnertube = async options => ({ actions: { execute: async (path, payload) => {
+    nextRequests.push({ path, payload, options })
+    return relatedResponse
+  } } })
+  const relatedItems = await vm.runInContext("getLocalRelatedRecommendations('seed0000001', true)", ctx)
+  assert.deepEqual(Array.from(relatedItems, v => v.videoId), ['related0001'])
+  assert.equal(nextRequests[0].path, '/next')
+  assert.equal(nextRequests[0].payload.videoId, 'seed0000001')
+  assert.equal(nextRequests[0].options.safetyMode, true)
+  await assert.rejects(vm.runInContext("getLocalRelatedRecommendations('bad')", ctx), /Invalid video ID/)
 
   ctx.createInnertube = async () => { throw Error('unavailable') }
   ctx.getLocalSearchResults = async (query, filters, safe) => { assert.equal(query, 'live'); assert.equal(filters.features[0], 'live'); assert.equal(safe, true); return { results: [{ ...video(7), liveNow: true }, video(8)] } }

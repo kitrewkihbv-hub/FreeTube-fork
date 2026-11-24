@@ -1371,11 +1371,12 @@ Theme Quick Switch:
 Discovery:
   Discover: Discover
   Live: Live
-  Discover Info: YouTube recommendations and related videos based on your recent watch history. Watched video titles may be sent to YouTube as searches; some videos may repeat.
+  Discover Info: YouTube recommendations and related videos based on your recent watch history. Video titles and IDs may be sent to YouTube to find suggestions; some videos may repeat.
   Live Info: Live streams from across YouTube. Availability can change at any time.
   Refresh: Refresh
   Loading: Refreshing videos…
   Public Home: Signed-out or family-friendly mode uses YouTube’s public home feed, which may not be personalized.
+  New Results: "Showing {count} suggestions not shown earlier in this session."
   Limited Results: No additional recommendations were available. Showing previous suggestions again.
   Home Unavailable: YouTube’s home feed could not be loaded. Showing results related to your recent watch history instead.
   Error: Could not load videos from YouTube. Check your connection and try Refresh again.

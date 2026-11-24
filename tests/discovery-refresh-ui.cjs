@@ -15,6 +15,7 @@ const video = (prefix, n) => ({ type: 'video', videoId: `${prefix}${n}`, title: 
 let freshSearches = 0, continuationCalls = 0
 const api = {
   openDiscoveryFeed: async (_kind, _safety, signedIn) => { assert.equal(signedIn, true); return { videos: [video('home', 1)], has_continuation: false } },
+  getLocalRelatedRecommendations: async () => [],
   getLocalSearchResults: async query => {
     assert.equal(query, 'My favorite games')
     freshSearches++
@@ -37,7 +38,7 @@ const source = fs.readFileSync('src/renderer/views/Discovery/Discovery.vue', 'ut
 let compiled = compileScript(parse(source, { filename: 'Discovery.vue' }).descriptor, { id: 'test', inlineTemplate: true }).content
 compiled = compiled.replace(/import \{ ([^}]+) \} from ["']vue["']/g, (_, names) => `const { ${names.replaceAll(' as ', ': ')} } = Vue`)
 compiled = compiled.replace(/import \{ FontAwesomeIcon \} from '[^']+'/g, 'const { FontAwesomeIcon } = mocks')
-compiled = compiled.replace(/import \{ getLocalSearchContinuation, getLocalSearchResults, openDiscoveryFeed \} from '[^']+'/g, 'const { getLocalSearchContinuation, getLocalSearchResults, openDiscoveryFeed } = api')
+compiled = compiled.replace(/import \{ getLocalRelatedRecommendations, getLocalSearchContinuation, getLocalSearchResults, openDiscoveryFeed \} from '[^']+'/g, 'const { getLocalRelatedRecommendations, getLocalSearchContinuation, getLocalSearchResults, openDiscoveryFeed } = api')
 compiled = compiled.replace(/import \{ createDiscoveryBrowser, createInterestSearch \} from '[^']+'/g, 'const { createDiscoveryBrowser, createInterestSearch } = discovery')
 compiled = compiled.replace(/import (\w+) from '[^']+'/g, (_, name) => `const ${name} = ${name === 'store' ? 'storeMock' : `mocks.${name}`}`)
 compiled = compiled.replace('export default', 'globalThis.component =')
@@ -71,5 +72,32 @@ const flush = async () => { await new Promise(resolve => setImmediate(resolve));
   assert.equal(continuationCalls, 1)
   assert.match(text(root), /new video 0/, 'clicking Refresh displays new related videos')
   app.unmount()
+
+  // A real button click must update the view when home/search return the same
+  // first page but watched-video recommendations provide different items.
+  const root2 = { type: 'root', children: [] }
+  history[0].videoId = 'watch000001'
+  api.getLocalSearchResults = async () => ({ results: [video('same', 0)], continuationData: null })
+  api.openDiscoveryFeed = async () => ({ videos: [{ ...video('home', 1), videoId: 'home0000001' }], has_continuation: false })
+  let relatedCalls = 0
+  api.getLocalRelatedRecommendations = async () => {
+    relatedCalls++
+    return [video('related', Math.min(relatedCalls, 3))]
+  }
+  const context2 = vm.createContext({ Vue, mocks, storeMock, api, discovery, console })
+  vm.runInContext(compiled, context2)
+  const app2 = renderer.createApp(context2.component)
+  app2.config.globalProperties.$t = key => key
+  app2.mount(root2)
+  await flush()
+  assert.match(text(root2), /related video 1/)
+  findButton(root2).props.onClick()
+  await flush()
+  assert.match(text(root2), /related video 2/, 'new related recommendations are visible after clicking Refresh')
+  assert.match(text(root2), /Discovery.New Results/)
+  findButton(root2).props.onClick()
+  await flush()
+  assert.match(text(root2), /Discovery.Limited Results/, 'an exhausted source explains why the feed repeats')
+  app2.unmount()
   console.log('Discover refresh UI test passed')
 })().catch(error => { console.error(error); process.exitCode = 1 })

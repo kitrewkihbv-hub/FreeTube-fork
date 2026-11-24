@@ -44,7 +44,14 @@
           {{ $t('Discovery.Home Unavailable') }}
         </p>
         <p
-          v-if="!error && limited"
+          v-if="!loading && !error && newCount > 0"
+          class="discoveryHint"
+          role="status"
+        >
+          {{ $t('Discovery.New Results', { count: newCount }) }}
+        </p>
+        <p
+          v-if="!loading && !error && limited"
           class="discoveryHint"
           role="status"
         >
@@ -74,7 +81,7 @@ import FtButton from '../../components/FtButton/FtButton.vue'
 import FtCard from '../../components/ft-card/ft-card.vue'
 import FtElementList from '../../components/FtElementList/FtElementList.vue'
 import FtLoader from '../../components/FtLoader/FtLoader.vue'
-import { getLocalSearchContinuation, getLocalSearchResults, openDiscoveryFeed } from '../../helpers/api/local'
+import { getLocalRelatedRecommendations, getLocalSearchContinuation, getLocalSearchResults, openDiscoveryFeed } from '../../helpers/api/local'
 import { createDiscoveryBrowser, createInterestSearch } from '../../helpers/api/discoveryFeed'
 import store from '../../store/index'
 
@@ -83,6 +90,7 @@ const loading = ref(false)
 const error = ref(false)
 const homeUnavailable = ref(false)
 const limited = ref(false)
+const newCount = ref(null)
 const account = computed(() => store.getters.getYouTubeAccount)
 const safetyMode = computed(() => store.getters.getShowFamilyFriendlyOnly)
 let generation = 0
@@ -94,6 +102,7 @@ function resetBrowser() {
   error.value = false
   homeUnavailable.value = false
   limited.value = false
+  newCount.value = null
   loading.value = false
   const search = createInterestSearch({
     search: query => getLocalSearchResults(query, { type: 'video' }, safetyMode.value),
@@ -103,6 +112,7 @@ function resetBrowser() {
     open: kind => openDiscoveryFeed(kind, safetyMode.value, account.value.signedIn),
     getHistory: () => store.getters.getHistoryCacheSorted,
     search,
+    related: videoId => getLocalRelatedRecommendations(videoId, safetyMode.value),
   })
   refresh()
 }
@@ -119,6 +129,7 @@ async function refresh() {
       const status = browser.getStatus()
       homeUnavailable.value = !status.homeAvailable
       limited.value = status.limited
+      newCount.value = status.newCount
     }
   } catch (err) {
     if (generation === requestGeneration) error.value = true
