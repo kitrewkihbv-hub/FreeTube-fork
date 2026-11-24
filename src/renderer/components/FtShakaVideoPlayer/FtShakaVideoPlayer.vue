@@ -14,7 +14,7 @@
       preload="auto"
       crossorigin="anonymous"
       playsinline
-      :style="{ transform: `scale(${videoZoom / 100})` }"
+      :style="{ transform: `scale(${videoWidth / 100}, ${videoHeight / 100})` }"
       :autoplay="autoplayVideos ? true : null"
       :poster="thumbnail"
       @play="handlePlay"
@@ -78,6 +78,52 @@
         <span>{{ t('Video.Player.Stats.Dropped Frames / Total Frames', stats.frames) }}</span>
       </template>
     </div>
+    <div
+      v-if="showVideoAdjustments && !useVrMode && format !== 'audio'"
+      :id="videoAdjustmentsId"
+      class="videoAdjustments"
+      role="group"
+      :aria-label="t('Video.Player.Adjust Picture')"
+      @click.stop
+      @keydown.esc.stop="showVideoAdjustments = false"
+    >
+      <label :for="`${videoAdjustmentsId}-width`">
+        {{ t('Video.Player.Picture Width', { value: videoWidth }) }}
+      </label>
+      <input
+        :id="`${videoAdjustmentsId}-width`"
+        v-model.number="videoWidth"
+        type="range"
+        min="50"
+        max="200"
+        step="5"
+      >
+      <label :for="`${videoAdjustmentsId}-height`">
+        {{ t('Video.Player.Picture Height', { value: videoHeight }) }}
+      </label>
+      <input
+        :id="`${videoAdjustmentsId}-height`"
+        v-model.number="videoHeight"
+        type="range"
+        min="50"
+        max="200"
+        step="5"
+      >
+      <div class="videoAdjustmentsActions">
+        <button
+          type="button"
+          @click="resetVideoAdjustments"
+        >
+          {{ t('Video.Player.Reset Picture') }}
+        </button>
+        <button
+          type="button"
+          @click="showVideoAdjustments = false"
+        >
+          {{ t('Video.Player.Close Picture Adjustments') }}
+        </button>
+      </div>
+    </div>
     <Transition name="fade">
       <div
         v-if="showValueChangePopup"
@@ -131,7 +177,7 @@
 import { FontAwesomeIcon, FontAwesomeLayers } from '@fortawesome/vue-fontawesome'
 import shaka from 'shaka-player'
 import { VideoZoomButton } from './player-components/VideoZoomButton'
-import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, reactive, ref, shallowRef, useTemplateRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, reactive, ref, shallowRef, useId, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import store from '../../store/index.js'
@@ -319,7 +365,17 @@ let player = null
 let ui = null
 
 const events = new EventTarget()
-const videoZoom = ref(100)
+const videoWidth = ref(100)
+const videoHeight = ref(100)
+const showVideoAdjustments = ref(false)
+const videoAdjustmentsId = useId()
+
+function resetVideoAdjustments() {
+  videoWidth.value = 100
+  videoHeight.value = 100
+}
+
+watch(showVideoAdjustments, value => events.dispatchEvent(new CustomEvent('videoAdjustmentsChanged', { detail: value })))
 
 const container = useTemplateRef('container')
 const video = useTemplateRef('video')
@@ -1793,7 +1849,7 @@ function registerTheatreModeButton() {
 function registerVideoZoomButton() {
   class VideoZoomButtonFactory {
     create(rootElement, controls) {
-      return new VideoZoomButton(() => videoZoom.value, (value) => { videoZoom.value = value }, rootElement, controls)
+      return new VideoZoomButton(() => showVideoAdjustments.value, () => { showVideoAdjustments.value = !showVideoAdjustments.value }, videoAdjustmentsId, events, rootElement, controls)
     }
   }
   shakaControls.registerElement('ft_video_zoom', new VideoZoomButtonFactory())

@@ -135,6 +135,7 @@ Subscriptions:
   Load More Posts: Load More Posts
   Subscriptions Tabs: Subscriptions Tabs
   All Subscription Tabs Hidden: 'All subscription tabs are hidden. To see content here, please unhide some tabs in the "{subsection}" section in "{settingsSection}".'
+  Channel Uploads Fallback: "YouTube’s account feed could not be read. Showing recent uploads from up to {count} subscribed channels instead; this list may be incomplete. Channels that could not be loaded: {failed}."
   Feed Source: Choose which subscriptions feed to view. Local uses channels imported into the active profile.
   Switch to Local Feed: Show local subscriptions
   Switch to YouTube Feed: Show YouTube account feed
@@ -1035,8 +1036,11 @@ Video:
       shuffling playlists: shuffling playlists
       looping playlists: looping playlists
   Player:
-    Video Zoom: "Zoom {zoom}%"
-    Video Zoom Hint: "Video zoom {zoom}%. Press to cycle zoom levels; zooming crops the picture."
+    Adjust Picture: Adjust picture
+    Picture Width: "Width: {value}%"
+    Picture Height: "Height: {value}%"
+    Reset Picture: Reset to 100%
+    Close Picture Adjustments: Close
     TranslatedCaptionTemplate: '{language} (translated from "{originalLanguage}")'
     Audio Tracks: Audio Tracks
     Autoplay is off: Autoplay is off

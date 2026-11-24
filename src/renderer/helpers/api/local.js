@@ -20,6 +20,7 @@ import {
   getYouTubeAccountRawText,
 } from './youtubeAccountRawFeed'
 import { getYouTubeAccountSubscriptionTabs } from './youtubeAccountSubscriptions'
+import { loadAccountActivity } from './youtubeAccountActivity'
 
 const TRACKING_PARAM_NAMES = [
   'utm_source',
@@ -778,7 +779,7 @@ export async function setYouTubeAccountSubscription(channelId, subscribed) {
  * Retrieves the activity feed (videos, Shorts and live streams) of the channels
  * that the signed in account is subscribed to on YouTube.
  *
- * @returns {Promise<object[]>}
+ * @returns {Promise<{ videos: object[], source: string, partial: boolean, channelCount?: number, failedChannelCount?: number }>}
  */
 export async function getYouTubeAccountActivityFeed() {
   const innertube = await getYouTubeAccountInnertube()
@@ -787,27 +788,15 @@ export async function getYouTubeAccountActivityFeed() {
     throw new Error('You must be signed in to your YouTube account.')
   }
 
-  let parsedError
-  try {
-    const feed = await innertube.getSubscriptionsFeed()
-    const videos = parseYouTubeAccountFeedItems(getYouTubeAccountFeedArray(feed, 'videos'))
-    if (videos.length > 0) return videos
-  } catch (error) {
-    parsedError = error
-    console.warn('Could not parse the YouTube subscriptions feed; trying raw browse data', error)
-  }
-
-  try {
-    const rawFeed = await getYouTubeAccountRawBrowseFeed(innertube.actions, 'FEsubscriptions')
-    const videos = parseYouTubeAccountFeedItems(getYouTubeAccountFeedArray(rawFeed, 'videos'))
-    if (videos.length > 0) return videos
-  } catch (error) {
-    parsedError ??= error
-    console.warn('Could not read the raw YouTube subscriptions feed', error)
-  }
-
-  // An empty or unrecognized response cannot be distinguished from an empty account.
-  throw new Error('YouTube returned no readable subscription videos.', { cause: parsedError })
+  return loadAccountActivity({
+    tv: innertube,
+    getWebClient: getYouTubeAccountWebInnertube,
+    getRawFeed: getYouTubeAccountRawBrowseFeed,
+    getRows: getYouTubeAccountHistoryVideos,
+    parseItems: parseYouTubeAccountFeedItems,
+    getSubscriptions: getYouTubeAccountSubscriptions,
+    getChannelVideos: getLocalChannelVideos,
+  })
 }
 
 /**

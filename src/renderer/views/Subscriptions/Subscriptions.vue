@@ -157,10 +157,19 @@
           >
             {{ $t('Subscriptions.YouTube Account Feed Empty') }}
           </p>
-          <FtElementList
-            v-else
-            :data="accountFeed"
-          />
+          <template v-else>
+            <p
+              v-if="accountFeedInfo?.source === 'channelUploads'"
+              class="accountFeedInfo"
+              role="status"
+            >
+              {{ $t('Subscriptions.Channel Uploads Fallback', { count: accountFeedInfo.channelCount, failed: accountFeedInfo.failedChannelCount }) }}
+            </p>
+            <FtElementList
+              :data="accountFeed"
+              :use-channels-hidden-preference="false"
+            />
+          </template>
         </template>
       </div>
       <p v-else>
@@ -200,9 +209,7 @@ const useYouTubeAccountFeed = computed(() => {
 })
 
 /** @type {import('vue').ComputedRef<boolean>} */
-const accountFeedBusy = computed(() => {
-  return store.getters.getYouTubeAccountBusy
-})
+const accountFeedInfo = computed(() => store.getters.getYouTubeAccountFeedInfo)
 
 /** @type {import('vue').ComputedRef<object[]|null>} */
 const accountFeedCache = computed(() => {
@@ -219,34 +226,38 @@ const showYouTubeAccountFeed = computed(() => {
 })
 
 const accountFeedError = ref(false)
-const accountFeedLoading = computed(() => {
-  return accountFeedBusy.value || (accountFeedCache.value === null && !accountFeedError.value)
-})
+const accountFeedLoading = ref(false)
 
 /** @type {import('vue').ComputedRef<object[]>} */
 const accountFeed = computed(() => {
   return accountFeedCache.value ?? []
 })
 
-function loadAccountFeed() {
-  if (!showYouTubeAccountFeed.value || store.getters.getYouTubeAccountFeed !== null) {
-    return
-  }
-
+async function requestAccountFeed(refresh = false) {
   accountFeedError.value = false
-  store.dispatch('grabYouTubeAccountFeed').catch((error) => {
+  accountFeedLoading.value = true
+  try {
+    await store.dispatch('grabYouTubeAccountFeed', { refresh })
+  } catch (error) {
     accountFeedError.value = true
     console.error('failed to load the YouTube account feed', error)
-  })
+  } finally {
+    accountFeedLoading.value = false
+  }
+}
+
+function loadAccountFeed() {
+  if (!showYouTubeAccountFeed.value || store.getters.getYouTubeAccountFeed !== null || accountFeedLoading.value) return
+  requestAccountFeed()
 }
 
 function refreshAccountFeed() {
-  accountFeedError.value = false
-  store.dispatch('grabYouTubeAccountFeed', { refresh: true }).catch((error) => {
-    accountFeedError.value = true
-    console.error('failed to refresh the YouTube account feed', error)
-  })
+  if (!accountFeedLoading.value) requestAccountFeed(true)
 }
+
+watch(accountFeedCache, value => {
+  if (value !== null) accountFeedError.value = false
+})
 
 watch(showYouTubeAccountFeed, (value) => {
   if (value) {

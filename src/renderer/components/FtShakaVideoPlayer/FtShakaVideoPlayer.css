@@ -237,3 +237,45 @@
   min-inline-size: 82px;
   white-space: nowrap;
 }
+
+.videoAdjustments {
+  position: absolute;
+  z-index: 4;
+  inset-inline-end: 15px;
+  inset-block-end: 75px;
+  display: grid;
+  gap: 8px;
+  inline-size: min(280px, calc(100% - 50px));
+  padding: 14px;
+  border: 1px solid #bda8d5;
+  border-radius: 10px;
+  background: #20152c;
+  color: #fff;
+  font-size: 14px;
+}
+
+.videoAdjustments input {
+  inline-size: 100%;
+  accent-color: #c79cf2;
+}
+
+.videoAdjustmentsActions {
+  display: flex;
+  gap: 8px;
+}
+
+.videoAdjustmentsActions button {
+  border: 1px solid #c79cf2;
+  border-radius: 5px;
+  padding-block: 6px;
+  padding-inline: 10px;
+  background: #4a2a67;
+  color: #fff;
+  cursor: pointer;
+}
+
+.videoAdjustmentsActions button:focus-visible,
+.videoAdjustments input:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}

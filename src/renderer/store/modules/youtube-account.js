@@ -17,6 +17,9 @@ import {
  * @property {string|null} handle
  */
 
+let feedRequest = null
+let feedGeneration = 0
+
 const state = {
   /** @type {YouTubeAccountState} */
   youtubeAccount: {
@@ -32,7 +35,8 @@ const state = {
   youtubeAccountRestored: false,
   youtubeAccountBusy: false,
   /** @type {object[]|null} */
-  youtubeAccountFeed: null
+  youtubeAccountFeed: null,
+  youtubeAccountFeedInfo: null
 }
 
 const getters = {
@@ -92,6 +96,10 @@ const getters = {
    */
   getYouTubeAccountFeed(state) {
     return state.youtubeAccountFeed
+  },
+
+  getYouTubeAccountFeedInfo(state) {
+    return state.youtubeAccountFeedInfo
   }
 }
 
@@ -121,6 +129,9 @@ const mutations = {
     state.youtubeAccountSignInPrompt = null
     state.youtubeAccountSigningIn = false
     state.youtubeAccountFeed = null
+    state.youtubeAccountFeedInfo = null
+    feedGeneration++
+    feedRequest = null
   },
 
   /**
@@ -161,6 +172,10 @@ const mutations = {
    */
   setYouTubeAccountFeed(state, feed) {
     state.youtubeAccountFeed = feed
+  },
+
+  setYouTubeAccountFeedInfo(state, info) {
+    state.youtubeAccountFeedInfo = info
   }
 }
 
@@ -479,20 +494,29 @@ const actions = {
       return context.state.youtubeAccountFeed
     }
 
-    commit('setYouTubeAccountBusy', true)
+    if (feedRequest) return feedRequest
 
+    const generation = feedGeneration
+    const request = (async () => {
+      const result = await getYouTubeAccountActivityFeed()
+      if (generation === feedGeneration) {
+        commit('setYouTubeAccountFeed', result.videos)
+        commit('setYouTubeAccountFeedInfo', result)
+      }
+      return result.videos
+    })()
+    feedRequest = request
     try {
-      const feed = await getYouTubeAccountActivityFeed()
-
-      commit('setYouTubeAccountFeed', feed)
-
-      return feed
+      return await request
     } finally {
-      commit('setYouTubeAccountBusy', false)
+      if (feedRequest === request) feedRequest = null
     }
   },
 
   clearYouTubeAccountFeed({ commit }) {
+    feedGeneration++
+    feedRequest = null
+    commit('setYouTubeAccountFeedInfo', null)
     commit('setYouTubeAccountFeed', null)
   }
 }

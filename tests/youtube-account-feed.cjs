@@ -1,8 +1,9 @@
-// Real raw feed extraction and activity feed fallback, with mocked Innertube.
+// Real raw extraction, account client fallback and bounded channel-upload fallback.
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const vm = require('node:vm')
 const rawSource = fs.readFileSync('src/renderer/helpers/api/youtubeAccountRawFeed.js', 'utf8').replaceAll('export function', 'function')
+const activity = fs.readFileSync('src/renderer/helpers/api/youtubeAccountActivity.js', 'utf8').replace('export async function', 'async function')
 const local = fs.readFileSync('src/renderer/helpers/api/local.js', 'utf8')
 function extract(startText, endText) {
   const start = local.indexOf(startText)
@@ -13,26 +14,41 @@ function extract(startText, endText) {
 const functions = [
   extract('export async function getYouTubeAccountActivityFeed()', '\n/**'),
   extract('function getYouTubeAccountFeedArray(', '\n/**'),
+  extract('function getYouTubeAccountHistoryVideos(', '\n/**'),
   extract('function getYouTubeAccountVideoFallback(', '\n/**'),
   extract('async function getYouTubeAccountRawBrowseFeed(', '\n/**'),
   extract('export function parseYouTubeAccountFeedItems(', '\n// #endregion'),
 ].join('\n')
 const tile = { tileRenderer: { contentId: 'video123', contentType: 'TILE_CONTENT_TYPE_VIDEO', metadata: { tileMetadataRenderer: { title: { simpleText: 'A video' } } }, onSelectCommand: { watchEndpoint: { videoId: 'video123' } } } }
 const response = { contents: { tvBrowseRenderer: { content: { tvSurfaceContentRenderer: { content: { gridRenderer: { items: [tile] } } } } } } }
-async function run(innertube) {
-  const context = vm.createContext({ getYouTubeAccountInnertube: async () => innertube, console: { warn() {} }, Utils: { timeToSeconds: () => 0 }, parseListItem: item => { if (item.bad) throw new Error('bad item'); return item }, Error })
-  vm.runInContext(`${rawSource}\n${functions}`, context)
-  return vm.runInContext('getYouTubeAccountActivityFeed()', context)
+function setup(tv, web, subscriptions = async () => { throw Error('no subscriptions') }, channelVideos = async () => {}) {
+  const context = vm.createContext({ getYouTubeAccountInnertube: async () => tv, getYouTubeAccountWebInnertube: async () => web, getYouTubeAccountSubscriptions: subscriptions, getLocalChannelVideos: channelVideos, console: { warn() {} }, Utils: { timeToSeconds: () => 0 }, parseListItem: item => { if (item.bad) throw new Error('bad item'); return item }, Error })
+  vm.runInContext(`${rawSource}\n${activity}\n${functions}`, context)
+  return () => vm.runInContext('getYouTubeAccountActivityFeed()', context)
 }
+const emptyClient = { getSubscriptionsFeed: async () => ({ videos: [] }), actions: { execute: async () => ({}) } }
 ;(async () => {
-  const feed = await run({ getSubscriptionsFeed: async () => ({ videos: [{ bad: true, type: 'Video', id: 'one', title: 'Fallback' }, { type: 'video', videoId: 'two' }] }) })
-  assert.deepEqual(Array.from(feed, x => x.videoId), ['one', 'two'])
   let browseId
-  const fallback = await run({ getSubscriptionsFeed: async () => ({ videos: [] }), actions: { execute: async (path, options) => { assert.equal(path, '/browse'); browseId = options.browseId; return response } } })
+  const raw = await setup({ ...emptyClient, actions: { execute: async (path, options) => { assert.equal(path, '/browse'); browseId = options.browseId; return response } } }, emptyClient)()
   assert.equal(browseId, 'FEsubscriptions')
-  assert.equal(fallback[0].videoId, 'video123')
-  assert.equal(fallback[0].title, 'A video')
-  await assert.rejects(run({ getSubscriptionsFeed: async () => { throw new Error('bad') }, actions: { execute: async () => ({}) } }), /no readable/)
-  await assert.rejects(run(null), /signed in/)
+  assert.equal(raw.videos[0].videoId, 'video123')
+  assert.equal(raw.videos[0].title, 'A video')
+  assert.equal(raw.source, 'youtube')
+
+  const web = await setup(emptyClient, { ...emptyClient, getSubscriptionsFeed: async () => ({ videos: [{ bad: true, type: 'Video', id: 'one', title: 'Fallback' }], has_continuation: true, getContinuation: async () => ({ videos: [{ type: 'video', videoId: 'two' }] }) }) })()
+  assert.deepEqual(Array.from(web.videos, x => x.videoId), ['one', 'two'])
+
+  const requested = []
+  const channels = Array.from({ length: 45 }, (_, n) => ({ id: `UC${n}`, name: `Channel ${n}` }))
+  const fallback = await setup(emptyClient, emptyClient, async () => ({ channels, partial: true }), async id => { requested.push(id); if (id === 'UC1') throw Error('offline'); return { videos: [{ type: 'video', videoId: id, published: Number(id.slice(2)) }] } })()
+  assert.equal(fallback.source, 'channelUploads')
+  assert.equal(fallback.partial, true)
+  assert.equal(fallback.channelCount, 40)
+  assert.equal(fallback.failedChannelCount, 1)
+  assert.equal(requested.length, 40)
+  assert.equal(fallback.videos[0].videoId, 'UC39')
+  assert.ok(fallback.videos.every(x => requested.includes(x.authorId)))
+  await assert.rejects(setup(emptyClient, emptyClient)(), /no readable/)
+  await assert.rejects(setup(null, emptyClient)(), /signed in/)
   console.log('YouTube account feed fallback tests passed')
 })().catch(error => { console.error(error); process.exitCode = 1 })

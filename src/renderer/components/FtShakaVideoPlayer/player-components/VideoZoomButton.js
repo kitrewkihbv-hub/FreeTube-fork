@@ -1,25 +1,24 @@
 import shaka from 'shaka-player'
 import i18n from '../../../i18n/index'
 
-const LEVELS = [100, 125, 150, 200]
-
-// Zoom only the video image, not the player controls. The container clips the edges.
+// Opens independent width/height controls; the picture alone is transformed.
 export class VideoZoomButton extends shaka.ui.Element {
-  constructor(getZoom, setZoom, parent, controls) {
+  constructor(isOpen, toggle, panelId, events, parent, controls) {
     super(parent, controls)
     this.button = document.createElement('button')
     this.button.classList.add('video-zoom-button')
     this.button.type = 'button'
+    this.button.setAttribute('aria-controls', panelId)
     const update = () => {
-      const label = i18n.global.t('Video.Player.Video Zoom', { zoom: getZoom() })
+      const label = i18n.global.t('Video.Player.Adjust Picture')
       this.button.textContent = label
-      this.button.setAttribute('aria-label', i18n.global.t('Video.Player.Video Zoom Hint', { zoom: getZoom() }))
-      this.button.title = this.button.getAttribute('aria-label')
+      this.button.setAttribute('aria-label', label)
+      this.button.setAttribute('aria-expanded', String(isOpen()))
+      this.button.title = label
     }
-    this.eventManager.listen(this.button, 'click', () => {
-      setZoom(LEVELS[(LEVELS.indexOf(getZoom()) + 1) % LEVELS.length])
-      update()
-    })
+    this.eventManager.listen(this.button, 'click', toggle)
+    this.eventManager.listen(events, 'videoAdjustmentsChanged', update)
+    this.eventManager.listen(events, 'localeChanged', update)
     parent.appendChild(this.button)
     update()
   }
