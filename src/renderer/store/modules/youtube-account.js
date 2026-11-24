@@ -3,6 +3,7 @@ import {
   getYouTubeAccountActivityFeed,
   getYouTubeAccountHistory,
   getYouTubeAccountInfo,
+  getYouTubeAccountPlaylists,
   getYouTubeAccountSubscriptions,
   setYouTubeAccountSubscription,
 } from '../../helpers/api/local'
@@ -399,19 +400,15 @@ const actions = {
   },
 
   /**
-   * Imports recent YouTube watch history into FreeTube's local history.
-   * The import is skipped when the user has disabled local watch history.
+   * Explicitly imports recent YouTube watch history into FreeTube's local history.
+   * This is separate from automatic local watch tracking and never uploads or deletes
+   * local history.
    * @param {object} context the Vuex action context
    * @param {Function} context.commit
    * @param {Function} context.dispatch
-   * @param {object} context.rootGetters
-   * @returns {Promise<{ addedCount: number, updatedCount: number, skipped?: boolean }>}
+   * @returns {Promise<{ addedCount: number, updatedCount: number, fetchedCount: number, truncated: boolean }>}
    */
-  async syncYouTubeAccountHistory({ commit, dispatch, rootGetters }) {
-    if (!rootGetters.getRememberHistory) {
-      return { addedCount: 0, updatedCount: 0, skipped: true }
-    }
-
+  async syncYouTubeAccountHistory({ commit, dispatch }) {
     commit('setYouTubeAccountBusy', true)
 
     try {
@@ -419,9 +416,51 @@ const actions = {
       // imported records in the Vuex cache after the database merge has completed.
       await dispatch('grabHistory', null, { root: true })
 
-      const history = await getYouTubeAccountHistory()
+      const accountData = await getYouTubeAccountHistory()
+      const mergeResult = await dispatch('mergeYouTubeAccountHistory', accountData.history, { root: true })
 
-      return await dispatch('mergeYouTubeAccountHistory', history, { root: true })
+      return {
+        ...mergeResult,
+        fetchedCount: accountData.history.length,
+        truncated: accountData.truncated
+      }
+    } finally {
+      commit('setYouTubeAccountBusy', false)
+    }
+  },
+
+  /**
+   * Imports the signed-in account's custom playlists, Watch Later, and Liked videos.
+   * Existing FreeTube playlists are merged additively and are never deleted or uploaded.
+   * @param {object} context the Vuex action context
+   * @param {Function} context.commit
+   * @param {Function} context.dispatch
+   * @param {object} context.rootGetters
+   * @returns {Promise<{ playlistCount: number, newPlaylistCount: number, videoCount: number, truncated: boolean, failedPlaylistCount: number }>}
+   */
+  async syncYouTubeAccountPlaylists({ commit, dispatch, rootGetters }) {
+    commit('setYouTubeAccountBusy', true)
+
+    try {
+      // Account sync can start during app launch, so ensure the local playlist list has
+      // finished loading before merging; otherwise this import could overwrite or miss
+      // existing FreeTube playlists.
+      if (!rootGetters.getPlaylistsReady) {
+        await dispatch('grabAllPlaylists', null, { root: true })
+      }
+
+      if (!rootGetters.getPlaylistsReady) {
+        throw new Error('FreeTube local playlists are not ready to sync.')
+      }
+
+      const accountData = await getYouTubeAccountPlaylists()
+      const mergeResult = await dispatch('mergeYouTubeAccountPlaylists', accountData.playlists, { root: true })
+
+      return {
+        ...mergeResult,
+        truncated: accountData.truncated,
+        failedPlaylistCount: accountData.failedPlaylistCount
+      }
     } finally {
       commit('setYouTubeAccountBusy', false)
     }

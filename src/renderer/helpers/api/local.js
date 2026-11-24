@@ -398,6 +398,18 @@ const CHANNELS_FEED_PAGES_TO_FETCH = 100
 /** Maximum number of recent YouTube watch-history pages fetched per sync */
 const YOUTUBE_ACCOUNT_HISTORY_PAGES_TO_FETCH = 20
 
+/** Maximum number of YouTube playlist index pages fetched per sync */
+const YOUTUBE_ACCOUNT_PLAYLIST_INDEX_PAGES_TO_FETCH = 20
+
+/** Maximum number of custom YouTube playlists imported per sync */
+const YOUTUBE_ACCOUNT_PLAYLISTS_TO_FETCH = 50
+
+/** Maximum total playlist-content pages fetched per sync */
+const YOUTUBE_ACCOUNT_PLAYLIST_CONTENT_PAGES_TO_FETCH = 100
+
+/** Leave one initial page each for YouTube Watch Later and Liked videos */
+const YOUTUBE_ACCOUNT_SYSTEM_PLAYLIST_CONTENT_PAGE_RESERVE = 2
+
 /** The user agent of the YouTube TV app, which is the client that the account tokens belong to */
 const TV_CLIENT_USER_AGENT = 'Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version'
 
@@ -459,17 +471,26 @@ export async function getYouTubeAccountInnertube() {
   }
 
   if (accountInnertube === null) {
-    accountInnertube = await createInnertube({
+    // Do not cache the client until OAuth sign-in succeeds. Caching it first leaves a
+    // failed, unauthenticated client in place, which can make later account reads look
+    // like a successful empty result instead of reporting the auth error.
+    const innertube = await createInnertube({
       clientType: ClientType.TV,
       // the TVInnerTube API expects requests from the TV app
       userAgent: TV_CLIENT_USER_AGENT
     })
 
-    accountInnertube.session.on('update-credentials', ({ credentials }) => {
+    innertube.session.on('update-credentials', ({ credentials }) => {
       saveAccountTokens({ ...accountTokens, ...credentials })
     })
 
-    await accountInnertube.session.signIn(tokens)
+    await innertube.session.signIn(tokens)
+
+    if (!innertube.session.logged_in) {
+      throw new Error('YouTube did not authenticate the saved account tokens.')
+    }
+
+    accountInnertube = innertube
   }
 
   return accountInnertube
@@ -698,7 +719,7 @@ export async function getYouTubeAccountActivityFeed() {
  * Each sync is capped to recent pages so a very large Google account does not
  * stall app startup indefinitely.
  *
- * @returns {Promise<object[]>}
+ * @returns {Promise<{ history: object[], truncated: boolean }>}
  */
 export async function getYouTubeAccountHistory() {
   const innertube = await getYouTubeAccountInnertube()
@@ -709,6 +730,7 @@ export async function getYouTubeAccountHistory() {
 
   let historyFeed
   let historyFeedError
+  let historyTruncated = false
 
   try {
     historyFeed = await innertube.getHistory()
@@ -717,17 +739,34 @@ export async function getYouTubeAccountHistory() {
     console.warn('failed to retrieve YouTube history directly; trying the Library history shelf', error)
   }
 
-  if (!historyFeed || (historyFeed.videos.length === 0 && !historyFeed.has_continuation)) {
+  if (!historyFeed || (!historyFeed.videos?.length && !historyFeed.has_continuation)) {
     try {
       const library = await innertube.getLibrary()
       const historyShelf = library.history
+      let libraryHistoryFeed
 
       if (historyShelf?.getAll) {
-        const libraryHistoryFeed = await historyShelf.getAll()
-
-        if (libraryHistoryFeed.videos.length > 0 || libraryHistoryFeed.has_continuation || !historyFeed) {
-          historyFeed = libraryHistoryFeed
+        try {
+          libraryHistoryFeed = await historyShelf.getAll()
+        } catch (error) {
+          historyTruncated = true
+          console.warn('failed to open the full YouTube Library history shelf', error)
         }
+      }
+
+      if (libraryHistoryFeed?.videos?.length > 0 || libraryHistoryFeed?.has_continuation) {
+        historyFeed = libraryHistoryFeed
+      } else if (historyShelf?.contents?.length > 0 && (!historyFeed || !historyFeed.videos?.length)) {
+        // Some YouTube clients expose the recent history items on the Library shelf
+        // but omit the shelf's "show all" button. Keep those visible recent items.
+        // The visible shelf is only a preview, so report this as a partial import.
+        historyFeed = {
+          videos: historyShelf.contents,
+          has_continuation: false
+        }
+        historyTruncated = true
+      } else if (!historyFeed && libraryHistoryFeed) {
+        historyFeed = libraryHistoryFeed
       }
     } catch (error) {
       console.warn('failed to retrieve YouTube history from the Library shelf', error)
@@ -742,19 +781,33 @@ export async function getYouTubeAccountHistory() {
 
   const historyByVideoId = new Map()
   const fallbackTime = Date.now()
+  let historyItemsRead = 0
 
   for (let page = 0; page < YOUTUBE_ACCOUNT_HISTORY_PAGES_TO_FETCH; page++) {
-    for (const video of historyFeed.videos) {
+    for (const video of historyFeed.videos ?? []) {
+      historyItemsRead++
       let videoData
 
       try {
         videoData = parseLocalListVideo(video)
       } catch (error) {
-        console.warn('skipping a YouTube history item that could not be parsed', error)
+        console.warn('failed to parse a YouTube history item using the list parser; trying the playlist parser', error)
+      }
+
+      if (!videoData?.videoId) {
+        try {
+          videoData = parseLocalPlaylistVideos([video])[0]
+        } catch (error) {
+          console.warn('skipping a YouTube history item that could not be parsed', error)
+        }
+      }
+
+      if (!videoData?.videoId) {
+        historyTruncated = true
         continue
       }
 
-      if (!videoData?.videoId || historyByVideoId.has(videoData.videoId)) {
+      if (historyByVideoId.has(videoData.videoId)) {
         continue
       }
 
@@ -773,13 +826,19 @@ export async function getYouTubeAccountHistory() {
       })
     }
 
-    if (!historyFeed.has_continuation || page === YOUTUBE_ACCOUNT_HISTORY_PAGES_TO_FETCH - 1) {
+    if (!historyFeed.has_continuation) {
+      break
+    }
+
+    if (page === YOUTUBE_ACCOUNT_HISTORY_PAGES_TO_FETCH - 1) {
+      historyTruncated = true
       break
     }
 
     try {
       historyFeed = await historyFeed.getContinuation()
     } catch (error) {
+      historyTruncated = true
       console.warn('YouTube history continuation failed; keeping the pages already imported', error)
 
       if (historyByVideoId.size === 0) {
@@ -790,7 +849,280 @@ export async function getYouTubeAccountHistory() {
     }
   }
 
-  return Array.from(historyByVideoId.values())
+  if (historyItemsRead > 0 && historyByVideoId.size === 0) {
+    throw new Error('YouTube returned watch-history items, but FreeTube could not parse any of them.')
+  }
+
+  if (historyItemsRead === 0) {
+    console.warn('YouTube returned no watch-history items for the signed-in account.')
+  }
+
+  return {
+    history: Array.from(historyByVideoId.values()),
+    truncated: historyTruncated
+  }
+}
+
+/**
+ * Imports custom YouTube playlists plus Watch Later and Liked videos.
+ * This is a read-only account operation; it never creates or edits playlists on YouTube.
+ *
+ * @returns {Promise<{ playlists: object[], truncated: boolean, failedPlaylistCount: number }>}
+ */
+export async function getYouTubeAccountPlaylists() {
+  const innertube = await getYouTubeAccountInnertube()
+
+  if (innertube === null) {
+    throw new Error('You must be signed in to your YouTube account.')
+  }
+
+  /** @type {Map<string, { id: string, title: string, firstVideos: object[] }>} */
+  const playlistSummaries = new Map()
+  /** @type {object[]} */
+  const playlists = []
+  const sourceErrors = []
+  let playlistIndexSucceeded = false
+  let truncated = false
+  let failedPlaylistCount = 0
+  let remainingContentPages = YOUTUBE_ACCOUNT_PLAYLIST_CONTENT_PAGES_TO_FETCH
+
+  const addPlaylistSummary = (item) => {
+    const rawId = item?.id ?? item?.content_id ?? item?.endpoint?.payload?.playlistId ?? item?.endpoint?.payload?.browseId
+
+    if (typeof rawId !== 'string' || rawId.length === 0) {
+      truncated = true
+      return
+    }
+
+    const id = rawId.startsWith('VL') ? rawId.slice(2) : rawId
+
+    if (id.length === 0) {
+      truncated = true
+      return
+    }
+
+    // These are imported from their dedicated Library shelves below. Mixes do not
+    // have stable playlist pages that FreeTube can store as local playlists.
+    if (['WL', 'LL', 'HL'].includes(id) || id.startsWith('RD')) {
+      return
+    }
+
+    const title = item?.title?.text ?? item?.metadata?.title?.text
+
+    if (typeof title !== 'string' || title.trim() === '') {
+      truncated = true
+      return
+    }
+
+    if (!playlistSummaries.has(id)) {
+      playlistSummaries.set(id, {
+        id,
+        title: title.trim(),
+        firstVideos: item?.first_videos ?? []
+      })
+    }
+  }
+
+  // This endpoint is the primary source for the account's custom playlists.
+  try {
+    let feed = await innertube.getPlaylists()
+    playlistIndexSucceeded = true
+
+    for (let page = 0; page < YOUTUBE_ACCOUNT_PLAYLIST_INDEX_PAGES_TO_FETCH; page++) {
+      for (const playlist of feed.playlists ?? []) {
+        addPlaylistSummary(playlist)
+      }
+
+      if (!feed.has_continuation) {
+        break
+      }
+
+      if (page === YOUTUBE_ACCOUNT_PLAYLIST_INDEX_PAGES_TO_FETCH - 1) {
+        truncated = true
+        break
+      }
+
+      feed = await feed.getContinuation()
+    }
+  } catch (error) {
+    sourceErrors.push(error)
+    truncated = true
+    console.warn('failed to retrieve YouTube playlist index; trying the Library shelf', error)
+  }
+
+  let library
+
+  try {
+    library = await innertube.getLibrary()
+    playlistIndexSucceeded = true
+
+    for (const playlist of library.playlists_section?.contents ?? []) {
+      addPlaylistSummary(playlist)
+    }
+  } catch (error) {
+    sourceErrors.push(error)
+    truncated = true
+    console.warn('failed to retrieve the YouTube Library while syncing playlists', error)
+  }
+
+  if (!playlistIndexSucceeded) {
+    throw new Error('Unable to retrieve YouTube playlists. Check the account connection and try again.', {
+      cause: sourceErrors.at(-1)
+    })
+  }
+
+  if (playlistSummaries.size > YOUTUBE_ACCOUNT_PLAYLISTS_TO_FETCH) {
+    truncated = true
+  }
+
+  const readPlaylistVideos = async (initialFeed, fallbackItems = [], reservedPages = YOUTUBE_ACCOUNT_SYSTEM_PLAYLIST_CONTENT_PAGE_RESERVE) => {
+    let feed = initialFeed
+    let pagesFetched = 0
+    const videos = []
+    const videoIds = new Set()
+
+    while (remainingContentPages > reservedPages && pagesFetched < 20) {
+      remainingContentPages--
+      pagesFetched++
+
+      const feedItems = feed?.items ?? feed?.videos
+      const useFallbackItems = !feedItems?.length && fallbackItems.length > 0
+      const items = useFallbackItems ? fallbackItems : feedItems ?? []
+
+      if (useFallbackItems && feed) {
+        // The summary's preview is not a full substitute for an empty playlist page.
+        truncated = true
+      }
+
+      for (const item of items) {
+        try {
+          const video = parseLocalPlaylistVideos([item])[0]
+
+          if (!video?.videoId) {
+            truncated = true
+            continue
+          }
+
+          if (!videoIds.has(video.videoId)) {
+            videoIds.add(video.videoId)
+            videos.push(video)
+          }
+        } catch (error) {
+          truncated = true
+          console.warn('skipping a YouTube playlist item that could not be parsed', error)
+        }
+      }
+
+      if (!feed?.has_continuation) {
+        break
+      }
+
+      if (pagesFetched === 20 || remainingContentPages <= reservedPages) {
+        truncated = true
+        break
+      }
+
+      try {
+        feed = await feed.getContinuation()
+      } catch (error) {
+        truncated = true
+        console.warn('YouTube playlist continuation failed; keeping the items already imported', error)
+        break
+      }
+    }
+
+    return videos
+  }
+
+  const customPlaylistSummaries = Array.from(playlistSummaries.values()).slice(0, YOUTUBE_ACCOUNT_PLAYLISTS_TO_FETCH)
+
+  for (const [index, summary] of customPlaylistSummaries.entries()) {
+    try {
+      const playlistFeed = await innertube.getPlaylist(summary.id)
+      const videos = await readPlaylistVideos(playlistFeed, summary.firstVideos)
+      const title = playlistFeed.info?.title ?? summary.title
+
+      playlists.push({
+        _id: `youtube-account-${summary.id}`,
+        playlistName: `YouTube: ${title}`,
+        description: playlistFeed.info?.description ?? '',
+        videos
+      })
+    } catch (error) {
+      console.warn(`failed to retrieve YouTube playlist ${summary.id}`, error)
+
+      const videos = await readPlaylistVideos(null, summary.firstVideos)
+
+      if (videos.length > 0) {
+        playlists.push({
+          _id: `youtube-account-${summary.id}`,
+          playlistName: `YouTube: ${summary.title}`,
+          description: '',
+          videos
+        })
+      }
+
+      // Avoid making an import of many playlists look completely successful when
+      // YouTube denied access to one or more of them.
+      failedPlaylistCount++
+      sourceErrors.push(error)
+    }
+
+    if (remainingContentPages <= YOUTUBE_ACCOUNT_SYSTEM_PLAYLIST_CONTENT_PAGE_RESERVE) {
+      if (index < customPlaylistSummaries.length - 1) {
+        truncated = true
+      }
+
+      break
+    }
+  }
+
+  const importLibraryShelf = async ({ shelf, playlistId, localId, playlistName, reservedPages }) => {
+    if (!shelf) {
+      return
+    }
+
+    let playlistFeed
+
+    if (shelf.getAll) {
+      try {
+        playlistFeed = await shelf.getAll()
+      } catch (error) {
+        truncated = true
+        console.warn(`failed to open YouTube's ${playlistName} list; using the visible shelf items`, error)
+      }
+    } else if (shelf.contents?.length > 0) {
+      truncated = true
+    }
+
+    const videos = await readPlaylistVideos(playlistFeed, shelf.contents ?? [], reservedPages)
+
+    playlists.push({
+      _id: localId,
+      playlistName,
+      description: `Imported from YouTube ${playlistName} (${playlistId})`,
+      videos
+    })
+  }
+
+  if (library) {
+    await importLibraryShelf({
+      shelf: library.watch_later,
+      playlistId: 'WL',
+      localId: 'watchLater',
+      playlistName: 'Watch Later',
+      reservedPages: 1
+    })
+    await importLibraryShelf({
+      shelf: library.liked_videos,
+      playlistId: 'LL',
+      localId: 'favorites',
+      playlistName: 'Favorites',
+      reservedPages: 0
+    })
+  }
+
+  return { playlists, truncated, failedPlaylistCount }
 }
 
 /**

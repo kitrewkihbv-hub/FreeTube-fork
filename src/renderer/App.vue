@@ -172,12 +172,12 @@ const landingPage = computed(() => '/' + store.getters.getLandingPage)
 const defaultInvidiousInstance = computed(() => store.getters.getDefaultInvidiousInstance)
 
 const dataReady = ref(false)
-const ACCOUNT_DATA_SYNC_VERSION = 1
+const ACCOUNT_DATA_SYNC_VERSION = 2
 
 /**
- * Pull the current YouTube subscriptions and recent watch history into FreeTube.
- * This is deliberately read-only with respect to the YouTube account; FreeTube's
- * local watch history is never uploaded.
+ * Pull the current YouTube subscriptions, recent watch history, and playlists into
+ * FreeTube. This is deliberately read-only with respect to the YouTube account; local
+ * history and playlist data are never uploaded.
  * @param {{ onSignIn?: boolean, onStartup?: boolean }} [options]
  */
 async function syncYouTubeAccountData({ onSignIn = false, onStartup = false } = {}) {
@@ -197,7 +197,9 @@ async function syncYouTubeAccountData({ onSignIn = false, onStartup = false } = 
 
   let subscriptionResult
   let historyResult
+  let playlistResult
   let coreSyncFailed = false
+  let accountSyncPartial = false
   let feedSyncFailed = false
 
   try {
@@ -209,9 +211,24 @@ async function syncYouTubeAccountData({ onSignIn = false, onStartup = false } = 
 
   try {
     historyResult = await store.dispatch('syncYouTubeAccountHistory')
+
+    if (historyResult.fetchedCount === 0 || historyResult.truncated) {
+      accountSyncPartial = true
+    }
   } catch (error) {
     coreSyncFailed = true
     console.error('failed to import YouTube watch history into FreeTube', error)
+  }
+
+  try {
+    playlistResult = await store.dispatch('syncYouTubeAccountPlaylists')
+
+    if (playlistResult.failedPlaylistCount > 0 || playlistResult.truncated || playlistResult.playlistCount === 0) {
+      accountSyncPartial = true
+    }
+  } catch (error) {
+    coreSyncFailed = true
+    console.error('failed to import YouTube playlists into FreeTube', error)
   }
 
   if (store.getters.getUseYouTubeAccountFeed) {
@@ -223,19 +240,22 @@ async function syncYouTubeAccountData({ onSignIn = false, onStartup = false } = 
     }
   }
 
-  if (!coreSyncFailed) {
+  if (!coreSyncFailed && !accountSyncPartial) {
     await store.dispatch('updateAccountDataSyncVersion', ACCOUNT_DATA_SYNC_VERSION)
   }
 
   if (onSignIn) {
     const channelCount = subscriptionResult?.addedCount ?? 0
     const historyCount = (historyResult?.addedCount ?? 0) + (historyResult?.updatedCount ?? 0)
-    if (coreSyncFailed || feedSyncFailed) {
+    if (coreSyncFailed || accountSyncPartial || feedSyncFailed) {
       showToast(t('Settings.Account Settings.Sync Partial'))
     } else {
       showToast(t('Settings.Account Settings.Sync Complete', {
         channels: channelCount,
-        videos: historyCount
+        videos: historyCount,
+        historyVideos: historyResult?.fetchedCount ?? 0,
+        playlists: playlistResult?.playlistCount ?? 0,
+        playlistVideos: playlistResult?.videoCount ?? 0
       }))
     }
   }
@@ -257,9 +277,9 @@ onMounted(async () => {
     }
   })
 
-  store.dispatch('grabAllProfiles', t('Profile.All Channels')).then(() => {
+  store.dispatch('grabAllProfiles', t('Profile.All Channels')).then(async () => {
     store.dispatch('grabHistory')
-    store.dispatch('grabAllPlaylists')
+    const localPlaylistsReady = store.dispatch('grabAllPlaylists')
     store.dispatch('grabAllSubscriptions')
     store.dispatch('grabSearchHistoryEntries')
 
@@ -273,6 +293,7 @@ onMounted(async () => {
       // Restore the Google / YouTube account and start listening for the sign in results
       window.ftElectron.handleYouTubeAccountSignInSuccess(async () => {
         await store.dispatch('handleYouTubeAccountSignInSuccess')
+        await localPlaylistsReady
         await syncYouTubeAccountData({ onSignIn: true })
       })
 
@@ -282,13 +303,15 @@ onMounted(async () => {
         showToast(t('Settings.Account Settings.Sign In Error With Reason', { reason: errorMessage }))
       })
 
-      store.dispatch('grabYouTubeAccount').then(() => {
+      store.dispatch('grabYouTubeAccount').then(async () => {
+        await localPlaylistsReady
         return syncYouTubeAccountData({ onStartup: true })
       }).catch((error) => {
         console.error('failed to sync the signed-in YouTube account', error)
       })
     }
 
+    await localPlaylistsReady
     dataReady.value = true
 
     setTimeout(() => {

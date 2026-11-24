@@ -232,14 +232,88 @@ const actions = {
     }
   },
 
+  /**
+   * Merges YouTube account playlists into the local playlist database without deleting
+   * or replacing any existing FreeTube playlist or video.
+   * @param {object} context
+   * @param {object} context.state
+   * @param {Function} context.dispatch
+   * @param {object[]} importedPlaylists
+   * @returns {Promise<{ playlistCount: number, newPlaylistCount: number, videoCount: number }>}
+   */
+  async mergeYouTubeAccountPlaylists({ state, dispatch }, importedPlaylists) {
+    let playlistCount = 0
+    let newPlaylistCount = 0
+    let videoCount = 0
+
+    for (const importedPlaylist of importedPlaylists) {
+      if (
+        typeof importedPlaylist?._id !== 'string' ||
+        typeof importedPlaylist?.playlistName !== 'string' ||
+        !Array.isArray(importedPlaylist?.videos)
+      ) {
+        continue
+      }
+
+      let existingPlaylist = state.playlists.find(playlist => playlist._id === importedPlaylist._id)
+
+      if (existingPlaylist === undefined) {
+        const playlist = {
+          _id: importedPlaylist._id,
+          playlistName: importedPlaylist.playlistName,
+          description: importedPlaylist.description ?? '',
+          protected: false,
+          videos: deepCopy(importedPlaylist.videos)
+        }
+
+        await dispatch('addPlaylist', playlist)
+        existingPlaylist = state.playlists.find(item => item._id === importedPlaylist._id)
+
+        if (existingPlaylist === undefined) {
+          continue
+        }
+
+        playlistCount++
+        newPlaylistCount++
+        videoCount += existingPlaylist.videos.length
+        continue
+      }
+
+      playlistCount++
+      const existingVideoIds = new Set(existingPlaylist.videos.map(video => video.videoId))
+      const newVideos = []
+
+      for (const video of importedPlaylist.videos) {
+        if (typeof video?.videoId !== 'string' || existingVideoIds.has(video.videoId)) {
+          continue
+        }
+
+        existingVideoIds.add(video.videoId)
+        newVideos.push(deepCopy(video))
+      }
+
+      if (newVideos.length > 0) {
+        const previousVideoCount = existingPlaylist.videos.length
+        await dispatch('addVideos', { _id: existingPlaylist._id, videos: newVideos })
+        const updatedPlaylist = state.playlists.find(item => item._id === existingPlaylist._id)
+
+        if (updatedPlaylist) {
+          videoCount += Math.max(0, updatedPlaylist.videos.length - previousVideoCount)
+        }
+      }
+    }
+
+    return { playlistCount, newPlaylistCount, videoCount }
+  },
+
   async grabAllPlaylists({ rootState, commit, dispatch, state }) {
     try {
       const payload = (await DBPlaylistHandlers.find()).filter((e) => e != null)
       if (payload.length === 0) {
         // Not using `addPlaylists` to ensure required attributes with dynamic values added
-        state.defaultPlaylists.forEach(playlist => {
-          dispatch('addPlaylist', deepCopy(playlist))
-        })
+        await Promise.all(state.defaultPlaylists.map(playlist => {
+          return dispatch('addPlaylist', deepCopy(playlist))
+        }))
       } else {
         const dateNow = Date.now()
         const currentTime = Date.now()

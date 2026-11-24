@@ -84,8 +84,9 @@ jobs:
           - Sign in with Google/YouTube using the SmartTube-compatible QR flow or the manual code.
             Session tokens are encrypted with the OS keychain when Electron safeStorage supports it.
           - Account status and Google sign-in are visible in the top-right navigation.
-          - Signing in imports YouTube subscriptions into the active profile and recent watch history
-            into FreeTube locally. FreeTube's local watch history is never uploaded to YouTube.
+          - Signing in imports YouTube subscriptions, recent watch history, custom playlists, Watch Later,
+            and liked videos into FreeTube locally. Existing local history and playlist items are preserved;
+            these imports do not write anything back to YouTube.
           - In the watch player, use the overflow menu near subtitles to change video size; the
             setting also has a fine-control slider in Settings → Player.
           - The video title is no longer drawn over the video when it is zoomed into fullscreen.

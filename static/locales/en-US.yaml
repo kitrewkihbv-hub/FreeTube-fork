@@ -295,8 +295,8 @@ Settings:
     Top Nav Sign In: Sign In
     Sync Account Data: Sync YouTube Data
     Syncing Account Data: Syncing YouTube Data…
-    Sync Complete: 'YouTube sync finished. {channels} new channels were added and {videos} recent history videos were imported.'
-    Sync Partial: Signed in, but some YouTube data could not be synced. Tap Sync YouTube Data to retry.
+    Sync Complete: 'YouTube sync finished: {channels} new channels, {historyVideos} recent YouTube history videos found ({videos} new or updated locally), and {playlists} playlists synced ({playlistVideos} new playlist videos added). History and playlists are imported locally only; FreeTube does not upload them to YouTube.'
+    Sync Partial: Signed in, but YouTube returned empty or incomplete history or playlist data. Check the selected Google account and YouTube Watch History, then tap Sync YouTube Data to retry.
     Sign In Title: Sign in to your Google account
     Sign In Instructions: Scan the QR code with your phone to sign in without typing
       anything, or enter the code below on any device to authorize FreeTube to access
@@ -331,8 +331,12 @@ Settings:
     Disclaimer: Your sign-in tokens are stored on this device and encrypted with
       your operating system's keychain whenever it is available. FreeTube sends them
       directly to YouTube only when reading your account data; FreeTube's servers do
-      not receive them. YouTube watch history is imported locally, and FreeTube's
-      local watch history is never uploaded.
+      not receive them. Account sync imports YouTube subscriptions, watch history,
+      custom playlists, Watch Later, and liked videos locally. History and playlist
+      imports only add or merge local data; they never upload those items to YouTube
+      or remove your existing local history or playlist videos. This explicit history
+      import still works when Remember History is off; that setting only controls
+      automatic local watch tracking.
   General Settings:
     General Settings: General
     Check for Updates: Check for Updates

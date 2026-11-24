@@ -328,7 +328,9 @@ async function startSignIn() {
 async function syncAccountData() {
   let subscriptionResult
   let historyResult
+  let playlistResult
   let syncFailed = false
+  let syncPartial = false
 
   try {
     subscriptionResult = await store.dispatch('syncSubscriptionsFromYouTubeAccount')
@@ -339,9 +341,24 @@ async function syncAccountData() {
 
   try {
     historyResult = await store.dispatch('syncYouTubeAccountHistory')
+
+    if (historyResult.fetchedCount === 0 || historyResult.truncated) {
+      syncPartial = true
+    }
   } catch (error) {
     syncFailed = true
     console.error('failed to import YouTube watch history into FreeTube', error)
+  }
+
+  try {
+    playlistResult = await store.dispatch('syncYouTubeAccountPlaylists')
+
+    if (playlistResult.failedPlaylistCount > 0 || playlistResult.truncated || playlistResult.playlistCount === 0) {
+      syncPartial = true
+    }
+  } catch (error) {
+    syncFailed = true
+    console.error('failed to import YouTube playlists into FreeTube', error)
   }
 
   if (useYouTubeAccountFeed.value) {
@@ -353,16 +370,22 @@ async function syncAccountData() {
     }
   }
 
-  if (!syncFailed) {
-    await store.dispatch('updateAccountDataSyncVersion', 1)
+  if (!syncFailed && !syncPartial) {
+    await store.dispatch('updateAccountDataSyncVersion', 2)
+  }
+
+  if (syncFailed || syncPartial) {
+    showToast(t('Settings.Account Settings.Sync Partial'))
+  } else {
     const historyCount = (historyResult?.addedCount ?? 0) + (historyResult?.updatedCount ?? 0)
 
     showToast(t('Settings.Account Settings.Sync Complete', {
       channels: subscriptionResult?.addedCount ?? 0,
-      videos: historyCount
+      videos: historyCount,
+      historyVideos: historyResult?.fetchedCount ?? 0,
+      playlists: playlistResult?.playlistCount ?? 0,
+      playlistVideos: playlistResult?.videoCount ?? 0
     }))
-  } else {
-    showToast(t('Settings.Account Settings.Sync Partial'))
   }
 }
 
