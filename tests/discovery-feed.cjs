@@ -22,13 +22,14 @@ const ctx = vm.createContext({ console: quiet, setTimeout, clearTimeout, Utils: 
 vm.runInContext(`${rawSource}\n${helperSource}\n${functions}`, ctx)
 const hasLiveBadge = vm.runInContext('hasLiveBadge', ctx)
 const makeBrowser = vm.runInContext('createDiscoveryBrowser', ctx)
+const makeSearch = vm.runInContext('createInterestSearch', ctx)
 assert.equal(hasLiveBadge({ title: 'LIVE' }), false)
 assert.equal(hasLiveBadge({ menu: { style: 'LIVE' } }), false)
 assert.equal(hasLiveBadge({ header: { tileHeaderRenderer: { thumbnailOverlays: [{ thumbnailOverlayTimeStatusRenderer: { style: 'LIVE' } }] } } }), true)
 assert.equal(hasLiveBadge({ badges: [{ metadataBadgeRenderer: { style: 'BADGE_STYLE_TYPE_LIVE_NOW' } }] }), true)
 const video = n => ({ type: 'video', videoId: `id${n}`, title: `Video ${n}` })
 let pageReads = 0, opens = 0
-const page = n => ({ videos: Array.from({ length: 5 }, (_, i) => video(n * 5 + i)), has_continuation: n < 1, getContinuation: async () => { pageReads++; return page(n + 1) } })
+const page = n => ({ videos: Array.from({ length: 5 }, (_, i) => video(n * 5 + i)), has_continuation: n < 5, getContinuation: async () => { pageReads++; return page(n + 1) } })
 ;(async () => {
   const history = [
     { videoId: 'watched1', title: 'Cooking with carrots', authorId: 'cook' },
@@ -48,7 +49,7 @@ const page = n => ({ videos: Array.from({ length: 5 }, (_, i) => video(n * 5 + i
   assert.ok(!first.some(v => v.videoId === 'watched1'), 'watched videos are excluded')
   const next = await browser.refresh()
   assert.equal(opens, 1, 'refresh advances the home continuation')
-  assert.equal(pageReads, 1)
+  assert.equal(pageReads, 5, 'small pages are read ahead rather than showing the same row')
   assert.equal(queries[2], 'Baking bread at home', 'subsequent refresh rotates through watched interests')
   assert.ok(next.some(v => !first.some(old => old.videoId === v.videoId)))
   assert.equal(new Set(next.map(v => v.videoId)).size, next.length)
@@ -56,9 +57,30 @@ const page = n => ({ videos: Array.from({ length: 5 }, (_, i) => video(n * 5 + i
   assert.equal(opens, 2, 'when continuation ends the home feed is requested again')
 
   let noHistoryQueries = 0
-  const noHistory = makeBrowser({ open: async () => page(0), search: async () => { noHistoryQueries++; return [] } })
+  const noHistory = makeBrowser({ open: async () => ({ videos: [video(1), video(2), video(3)] }), search: async () => { noHistoryQueries++; return [] } })
   await noHistory.refresh()
   assert.equal(noHistoryQueries, 0, 'never search unrelated preset topics')
+  const firstOrder = Array.from(await noHistory.refresh(), v => v.videoId)
+  const secondOrder = Array.from(await noHistory.refresh(), v => v.videoId)
+  assert.notDeepEqual(secondOrder, firstOrder, 'an unchanged small feed does not look stuck')
+  assert.equal(noHistory.getStatus().limited, true, 'reordered old items are labeled rather than presented as new')
+  const again = Array.from(await noHistory.refresh(), v => v.videoId)
+  assert.notDeepEqual(again, secondOrder)
+
+  let firstSearchCalls = 0, nextSearchCalls = 0
+  const pagedSearch = makeSearch({
+    search: async () => { firstSearchCalls++; return { results: [video(100)], continuationData: 'cursor1' } },
+    next: async cursor => { nextSearchCalls++; assert.equal(cursor, 'cursor1'); return { results: [video(101)], continuationData: null } },
+  })
+  assert.equal((await pagedSearch('familiar topic'))[0].videoId, 'id100')
+  assert.equal((await pagedSearch('familiar topic'))[0].videoId, 'id101', 'the next refresh fetches more related results')
+  await pagedSearch('familiar topic')
+  assert.equal(firstSearchCalls, 2, 'an exhausted search is restarted')
+  assert.equal(nextSearchCalls, 1)
+  const expired = makeSearch({ search: async () => ({ results: [video(200)], continuationData: 'expired' }), next: async () => { throw Error('expired') } })
+  await expired('topic')
+  assert.equal((await expired('topic'))[0].videoId, 'id200', 'an expired cursor falls back to a fresh search')
+
   const stuck = makeBrowser({ open: () => new Promise(() => {}), search, getHistory: () => history, timeoutMs: 15 })
   assert.ok((await stuck.refresh()).length > 0)
   let releaseHome

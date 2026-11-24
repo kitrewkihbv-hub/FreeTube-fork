@@ -44,6 +44,13 @@
           {{ $t('Discovery.Home Unavailable') }}
         </p>
         <p
+          v-if="!error && limited"
+          class="discoveryHint"
+          role="status"
+        >
+          {{ $t('Discovery.Limited Results') }}
+        </p>
+        <p
           v-if="error"
           class="discoveryHint"
           role="alert"
@@ -67,14 +74,15 @@ import FtButton from '../../components/FtButton/FtButton.vue'
 import FtCard from '../../components/ft-card/ft-card.vue'
 import FtElementList from '../../components/FtElementList/FtElementList.vue'
 import FtLoader from '../../components/FtLoader/FtLoader.vue'
-import { getLocalSearchResults, openDiscoveryFeed } from '../../helpers/api/local'
-import { createDiscoveryBrowser } from '../../helpers/api/discoveryFeed'
+import { getLocalSearchContinuation, getLocalSearchResults, openDiscoveryFeed } from '../../helpers/api/local'
+import { createDiscoveryBrowser, createInterestSearch } from '../../helpers/api/discoveryFeed'
 import store from '../../store/index'
 
 const videos = shallowRef([])
 const loading = ref(false)
 const error = ref(false)
 const homeUnavailable = ref(false)
+const limited = ref(false)
 const account = computed(() => store.getters.getYouTubeAccount)
 const safetyMode = computed(() => store.getters.getShowFamilyFriendlyOnly)
 let generation = 0
@@ -85,11 +93,16 @@ function resetBrowser() {
   videos.value = []
   error.value = false
   homeUnavailable.value = false
+  limited.value = false
   loading.value = false
+  const search = createInterestSearch({
+    search: query => getLocalSearchResults(query, { type: 'video' }, safetyMode.value),
+    next: cursor => getLocalSearchContinuation(cursor),
+  })
   browser = createDiscoveryBrowser({
     open: kind => openDiscoveryFeed(kind, safetyMode.value, account.value.signedIn),
     getHistory: () => store.getters.getHistoryCacheSorted,
-    search: async query => (await getLocalSearchResults(query, { type: 'video' }, safetyMode.value)).results,
+    search,
   })
   refresh()
 }
@@ -103,7 +116,9 @@ async function refresh() {
     const result = await browser.refresh()
     if (generation === requestGeneration) {
       videos.value = result
-      homeUnavailable.value = !browser.getStatus().homeAvailable
+      const status = browser.getStatus()
+      homeUnavailable.value = !status.homeAvailable
+      limited.value = status.limited
     }
   } catch (err) {
     if (generation === requestGeneration) error.value = true

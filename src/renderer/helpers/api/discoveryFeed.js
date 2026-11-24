@@ -48,6 +48,34 @@ export function getInterestQueries(history, offset = 0) {
   return Array.from({ length: Math.min(2, queries.length) }, (_, i) => queries[(offset + i) % queries.length])
 }
 
+/** Page through search results for watched titles instead of restarting at page one. */
+export function createInterestSearch({ search, next }) {
+  const cursors = new Map()
+  const generations = new Map()
+
+  return async query => {
+    const generation = (generations.get(query) ?? 0) + 1
+    generations.set(query, generation)
+    let result
+    const cursor = cursors.get(query)
+    if (cursor) {
+      try {
+        result = await next(cursor)
+      } catch {
+        // Expired continuations are common; request a new search below.
+      }
+    }
+    if (!result?.results?.length) result = await search(query)
+    if (generations.get(query) === generation) {
+      if (result?.continuationData) cursors.set(query, result.continuationData)
+      else cursors.delete(query)
+      if (cursors.size > 24) cursors.delete(cursors.keys().next().value)
+      if (generations.size > 48) generations.delete(generations.keys().next().value)
+    }
+    return result?.results ?? []
+  }
+}
+
 /** Browse home recommendations and related searches based only on watched titles. */
 export function createDiscoveryBrowser({ open, search, getHistory = () => [], kind = 'discover', timeoutMs = 12000 }) {
   let currentFeed = null
@@ -55,8 +83,10 @@ export function createDiscoveryBrowser({ open, search, getHistory = () => [], ki
   let recentIds = []
   let queryOffset = 0
   let homeAvailable = true
+  let limited = false
 
   async function readHome() {
+    const startedAt = Date.now()
     let feed
     if (currentFeed?.has_continuation) {
       try {
@@ -67,7 +97,25 @@ export function createDiscoveryBrowser({ open, search, getHistory = () => [], ki
     } else {
       feed = await open(kind)
     }
-    return { videos: feed?.videos ?? [], feed }
+    const videos = [...(feed?.videos ?? [])]
+    const previousIds = new Set(recentIds.flat())
+    // A continuation may contain another small shelf or only repeated videos.
+    // Read ahead a little so Refresh can bring in genuinely new recommendations.
+    for (let page = 1; page < 3 && feed?.has_continuation; page++) {
+      const newCount = new Set(videos.filter(video => video?.videoId && !previousIds.has(video.videoId)).map(video => video.videoId)).size
+      if (newCount >= 18) break
+      const remainingMs = timeoutMs - (Date.now() - startedAt) - 50
+      if (remainingMs <= 0) break
+      try {
+        const nextPage = await withTimeout(feed.getContinuation(), Math.min(remainingMs, timeoutMs / 3, 4000))
+        if (!nextPage) break
+        feed = nextPage
+        videos.push(...(feed.videos ?? []))
+      } catch {
+        break
+      }
+    }
+    return { videos, feed }
   }
 
   async function refresh() {
@@ -104,10 +152,27 @@ export function createDiscoveryBrowser({ open, search, getHistory = () => [], ki
     }).slice(0, 300)
 
     const previousIds = new Set(recentIds.flat())
-    const next = [...pool.filter(video => !previousIds.has(video.videoId)), ...pool.filter(video => previousIds.has(video.videoId))].slice(0, 36)
+    const lastIds = new Set(recentIds[0] ?? [])
+    const unseen = pool.filter(video => !previousIds.has(video.videoId))
+    const older = pool.filter(video => previousIds.has(video.videoId) && !lastIds.has(video.videoId))
+    const repeated = pool.filter(video => lastIds.has(video.videoId))
+    limited = recentIds.length > 0 && unseen.length === 0
+
+    // If the service really has no new items, still change the ordering rather
+    // than appearing stuck. Do not represent rearranged items as new videos.
+    if (!unseen.length && !older.length && repeated.length > 1) {
+      const byId = new Map(repeated.map(video => [video.videoId, video]))
+      const previousOrder = (recentIds[0] ?? []).map(id => byId.get(id)).filter(Boolean)
+      const previousSet = new Set(previousOrder.map(video => video.videoId))
+      const remaining = repeated.filter(video => !previousSet.has(video.videoId))
+      const combined = [...previousOrder, ...remaining]
+      const shift = Math.ceil(combined.length / 2)
+      repeated.splice(0, repeated.length, ...combined.slice(shift), ...combined.slice(0, shift))
+    }
+    const next = [...unseen, ...older, ...repeated].slice(0, 36)
     recentIds = [next.map(video => video.videoId), ...recentIds].slice(0, 3)
     return next
   }
 
-  return { refresh, getStatus: () => ({ homeAvailable }) }
+  return { refresh, getStatus: () => ({ homeAvailable, limited }) }
 }

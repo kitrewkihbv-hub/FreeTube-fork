@@ -1376,5 +1376,6 @@ Discovery:
   Refresh: Refresh
   Loading: Refreshing videos…
   Public Home: Signed-out or family-friendly mode uses YouTube’s public home feed, which may not be personalized.
+  Limited Results: No additional recommendations were available. Showing previous suggestions again.
   Home Unavailable: YouTube’s home feed could not be loaded. Showing results related to your recent watch history instead.
   Error: Could not load videos from YouTube. Check your connection and try Refresh again.
