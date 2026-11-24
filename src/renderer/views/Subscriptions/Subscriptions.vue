@@ -166,6 +166,32 @@
           </p>
           <template v-if="accountFeed.length > 0">
             <p
+              v-if="!accountFeedError && !accountFeedLoading && accountRefreshStatus === 'new'"
+              class="accountFeedInfo"
+              role="status"
+            >
+              {{ $t('Subscriptions.Account Feed New Results', { count: accountNewCount }) }}
+            </p>
+            <p
+              v-if="!accountFeedError && !accountFeedLoading && accountRefreshStatus === 'rotated'"
+              class="accountFeedInfo"
+              role="status"
+            >
+              {{ $t('Subscriptions.Account Feed Rotated') }}
+            </p>
+            <p
+              v-if="!accountFeedError && !accountFeedLoading && accountRefreshStatus === 'unchanged'"
+              class="accountFeedInfo"
+              role="status"
+            >
+              {{ $t('Subscriptions.Account Feed Unchanged') }}
+            </p>
+            <FtButton
+              v-if="accountFeedOffset > 0"
+              :label="$t('Subscriptions.Restore Feed Order')"
+              @click="restoreAccountFeedOrder"
+            />
+            <p
               v-if="accountFeedInfo?.source === 'channelUploads' || accountFeedInfo?.source === 'mixed'"
               class="accountFeedInfo"
               role="status"
@@ -180,7 +206,7 @@
               {{ $t('Subscriptions.Account Feed Partial') }}
             </p>
             <FtElementList
-              :data="accountFeed"
+              :data="displayedAccountFeed"
               :use-channels-hidden-preference="false"
             />
           </template>
@@ -247,6 +273,9 @@ function switchFeedSource() {
 
 const accountFeedError = ref(false)
 const accountFeedLoading = ref(false)
+const accountFeedOffset = ref(0)
+const accountRefreshStatus = ref(null)
+const accountNewCount = ref(0)
 const ACCOUNT_FEED_MAX_AGE_MS = 5 * 60 * 1000
 const ACCOUNT_FEED_RETRY_DELAY_MS = 60 * 1000
 let lastAccountFeedAttemptAt = 0
@@ -257,12 +286,45 @@ const accountFeed = computed(() => {
   return accountFeedCache.value ?? []
 })
 
-async function requestAccountFeed(refresh = false) {
+// Keep the cached YouTube order intact; only the visible order is changed.
+const displayedAccountFeed = computed(() => {
+  const feed = accountFeed.value
+  const offset = feed.length ? accountFeedOffset.value % feed.length : 0
+  return offset ? [...feed.slice(offset), ...feed.slice(0, offset)] : feed
+})
+
+function restoreAccountFeedOrder() {
+  accountFeedOffset.value = 0
+  accountRefreshStatus.value = null
+}
+
+async function requestAccountFeed(refresh = false, manual = false) {
+  const previousIds = new Set(accountFeed.value.map(video => video.videoId).filter(Boolean))
   accountFeedError.value = false
   accountFeedLoading.value = true
   lastAccountFeedAttemptAt = Date.now()
   try {
     await store.dispatch('grabYouTubeAccountFeed', { refresh })
+    // A subscription change or sign-out can invalidate this request while it runs.
+    if (accountFeedCache.value !== null) {
+      if (manual) {
+        const feed = accountFeedCache.value
+        accountNewCount.value = feed.filter(video => video.videoId && !previousIds.has(video.videoId)).length
+        if (accountNewCount.value > 0) {
+          accountFeedOffset.value = 0
+          accountRefreshStatus.value = 'new'
+        } else if (feed.length > 1) {
+          const step = Math.min(20, Math.max(1, Math.floor(feed.length / 2)))
+          accountFeedOffset.value = (accountFeedOffset.value + step) % feed.length
+          accountRefreshStatus.value = accountFeedOffset.value ? 'rotated' : 'unchanged'
+        } else {
+          accountFeedOffset.value = 0
+          accountRefreshStatus.value = 'unchanged'
+        }
+      } else {
+        restoreAccountFeedOrder()
+      }
+    }
   } catch (error) {
     accountFeedError.value = true
     console.error('failed to load the YouTube account feed', error)
@@ -284,14 +346,15 @@ function loadAccountFeed() {
 }
 
 function refreshAccountFeed() {
-  if (!accountFeedLoading.value) requestAccountFeed(true)
+  if (!accountFeedLoading.value) requestAccountFeed(true, true)
 }
 
 watch(accountFeedCache, value => {
   if (value !== null) {
     accountFeedError.value = false
-  } else if (showYouTubeAccountFeed.value && !accountFeedLoading.value) {
-    loadAccountFeed()
+  } else {
+    restoreAccountFeedOrder()
+    if (showYouTubeAccountFeed.value && !accountFeedLoading.value) loadAccountFeed()
   }
 })
 

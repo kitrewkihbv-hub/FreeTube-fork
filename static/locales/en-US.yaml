@@ -135,6 +135,10 @@ Subscriptions:
   Load More Posts: Load More Posts
   Subscriptions Tabs: Subscriptions Tabs
   All Subscription Tabs Hidden: 'All subscription tabs are hidden. To see content here, please unhide some tabs in the "{subsection}" section in "{settingsSection}".'
+  Account Feed New Results: "YouTube returned {count} videos that were not in the previous feed."
+  Account Feed Rotated: No videos were added to the returned feed. Showing a different part of the same feed first; this is not YouTube's original order.
+  Account Feed Unchanged: No videos were added to the returned feed. YouTube may not have new uploads available yet.
+  Restore Feed Order: Restore YouTube order
   Account Feed Partial: YouTube returned a limited subscription feed. Some subscribed channels or videos may be missing.
   Channel Uploads Fallback: "Showing recent uploads from up to {count} subscribed channels; results may be incomplete. Channels that could not be loaded: {failed}."
   Feed Source: Choose which subscriptions feed to view. Local uses channels imported into the active profile.
