@@ -303,7 +303,7 @@ const hideTrendingVideos = computed(() => store.getters.getHideTrendingVideos)
 
 const INCLUDED_DEFAULT_PAGE_NAMES = [
   'subscriptions',
-  ...(process.env.SUPPORTS_LOCAL_API ? ['discover', 'live'] : []),
+  ...(process.env.SUPPORTS_LOCAL_API ? ['discover'] : []),
   'subscribedChannels',
   'popular',
   'userPlaylists',
@@ -328,7 +328,7 @@ const defaultPages = computed(() => {
     includedPageNames = includedPageNames.filter((pageName) => pageName !== 'popular')
   }
 
-  return router.getRoutes().filter((route) => includedPageNames.includes(route.name) || route.path.slice(1) === store.getters.getLandingPage)
+  return router.getRoutes().filter((route) => includedPageNames.includes(route.name) || (route.path.slice(1) === store.getters.getLandingPage && route.path !== '/live'))
 })
 
 const defaultPageNames = computed(() => defaultPages.value.map((route) => translateWindowTitle(route.meta.title)))
@@ -338,11 +338,11 @@ const defaultPageValues = computed(() => {
   return defaultPages.value.map((route) => route.path.slice(1))
 })
 
-/** @type {import('vue').ComputedRef<'subscriptions' | 'discover' | 'live' | 'subscribedChannels' | 'popular' | 'userPlaylists' | 'history' | 'settings' | 'about' | 'trending'>} */
-const landingPage = computed(() => store.getters.getLandingPage)
+/** @type {import('vue').ComputedRef<'subscriptions' | 'discover' | 'subscribedChannels' | 'popular' | 'userPlaylists' | 'history' | 'settings' | 'about' | 'trending'>} */
+const landingPage = computed(() => store.getters.getLandingPage === 'live' ? 'discover' : store.getters.getLandingPage)
 
 /**
- * @param {'subscriptions' | 'discover' | 'live' | 'subscribedChannels' | 'popular' | 'userPlaylists' | 'history' | 'settings' | 'about' | 'trending'} value
+ * @param {'subscriptions' | 'discover' | 'subscribedChannels' | 'popular' | 'userPlaylists' | 'history' | 'settings' | 'about' | 'trending'} value
  */
 function updateLandingPage(value) {
   store.dispatch('updateLandingPage', value)

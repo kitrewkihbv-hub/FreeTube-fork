@@ -30,8 +30,8 @@ const router = createRouter({
     },
     ...(process.env.SUPPORTS_LOCAL_API
       ? [
-          { path: '/discover', name: 'discover', meta: { title: 'Discover' }, component: Discovery, props: { kind: 'discover' } },
-          { path: '/live', name: 'live', meta: { title: 'Live' }, component: Discovery, props: { kind: 'live' } },
+          { path: '/discover', name: 'discover', meta: { title: 'Discover' }, component: Discovery },
+          { path: '/live', redirect: '/discover' },
         ]
       : []),
     {

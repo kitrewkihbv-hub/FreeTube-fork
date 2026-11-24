@@ -14,58 +14,103 @@ export function hasLiveBadge(item) {
   return visit(item)
 }
 
-/** Stateful discovery browser: refresh advances YouTube's continuation where available. */
-export function createDiscoveryBrowser({ open, kind, random = Math.random }) {
+// Diverse searches supplement YouTube's home recommendations when they repeat or
+// contain only a few cards. These are ordinary public YouTube searches, not
+// personalised recommendations or subscriptions.
+const DISCOVERY_TOPICS = [
+  'nature documentary', 'space exploration', 'travel videos', 'creative cooking',
+  'technology inventions', 'animals wildlife', 'ocean exploration', 'history documentary',
+  'science experiments', 'architecture design', 'photography tutorials', 'art and painting',
+  'game highlights', 'puzzles and brain teasers', 'cars and engineering', 'woodworking projects',
+  'hiking adventures', 'funny animals', 'creative animation', 'amazing crafts',
+  'world geography', 'gardening tips', 'aerial drone views', 'trains and railways',
+  'robotics projects', 'behind the scenes filmmaking', 'volcanoes and geology', 'wildlife rescue',
+  'food around the world', 'building restoration', 'astronomy discoveries', 'camping adventures',
+  'board games', 'classic video games', 'museum tours', 'weather phenomena',
+]
+
+function shuffle(items, random) {
+  const result = items.slice()
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1))
+    ;[result[i], result[j]] = [result[j], result[i]]
+  }
+  return result
+}
+
+// A stalled source should not leave Refresh disabled indefinitely. The timeout
+// only stops waiting; the request itself may still finish in the background.
+function withTimeout(promise, timeoutMs) {
+  let timer
+  return Promise.race([
+    promise,
+    new Promise((resolve, reject) => {
+      timer = setTimeout(() => reject(new Error('Discovery request timed out')), timeoutMs)
+    }),
+  ]).finally(() => clearTimeout(timer))
+}
+
+/** Stateful discovery browser with home recommendations and rotating topic searches. */
+export function createDiscoveryBrowser({ open, search, kind = 'discover', random = Math.random, timeoutMs = 12000 }) {
   let currentFeed = null
   let pool = []
-  let previousIds = new Set()
+  let recentIds = []
+  let topics = []
+  let lastTopics = new Set()
 
-  async function refresh() {
+  function nextTopics() {
+    if (topics.length < 3) {
+      topics = shuffle(DISCOVERY_TOPICS.filter(topic => !lastTopics.has(topic)), random)
+    }
+    const selected = topics.splice(0, 3)
+    lastTopics = new Set(selected)
+    return selected
+  }
+
+  async function readHome() {
     let feed
-    if (kind === 'discover' && currentFeed?.has_continuation) {
+    if (currentFeed?.has_continuation) {
       try {
         feed = await currentFeed.getContinuation()
       } catch {
-        // A continuation may expire; start a fresh browse instead of getting stuck.
         feed = await open(kind)
       }
     } else {
       feed = await open(kind)
     }
+    if (!feed) return { videos: [], feed: null }
+    return { videos: [...(feed.videos ?? [])], feed }
+  }
 
-    const collected = []
-    // Read a few shelves/pages, rather than permanently displaying just the first row.
-    for (let i = 0; feed && i < 3; i++) {
-      collected.push(...(feed.videos ?? []))
-      if (!feed.has_continuation || i === 2) break
-      try {
-        feed = await feed.getContinuation()
-      } catch (error) {
-        if (!collected.length) throw error
-        break
+  async function refresh() {
+    // Every refresh searches a different set of broad topics in parallel with
+    // YouTube's home feed, so even a fixed home shelf can produce new videos.
+    const sources = [withTimeout(readHome(), timeoutMs)]
+    if (search) {
+      for (const topic of nextTopics()) {
+        sources.push(withTimeout(Promise.resolve().then(() => search(topic)), timeoutMs))
       }
     }
-
-    const eligible = collected.filter(video => video?.type === 'video' && video.videoId && (kind !== 'live' || video.liveNow === true))
-    if (!eligible.length) throw new Error('No readable videos were returned.')
+    const settled = await Promise.allSettled(sources)
+    const home = settled[0]
+    if (home.status === 'fulfilled') currentFeed = home.value.feed
+    const collected = [
+      ...(home.status === 'fulfilled' ? home.value.videos : []),
+      ...settled.slice(1).flatMap(result => result.status === 'fulfilled' ? result.value ?? [] : []),
+    ].filter(video => video?.type === 'video' && video.videoId)
+    if (!collected.length) throw new Error('No readable videos were returned.')
 
     const seen = new Set()
-    pool = (kind === 'live' ? eligible : [...eligible, ...pool]).filter(video => {
+    pool = [...shuffle(collected, random), ...pool].filter(video => {
       if (seen.has(video.videoId)) return false
       seen.add(video.videoId)
       return true
     }).slice(0, 300)
-    currentFeed = feed
 
-    const shuffled = pool.slice()
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(random() * (i + 1))
-      ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
-    }
-    // Prefer videos not shown on the last refresh; if YouTube returns no new videos,
-    // the same available items can still appear in a different order.
-    const next = [...shuffled.filter(v => !previousIds.has(v.videoId)), ...shuffled.filter(v => previousIds.has(v.videoId))].slice(0, 36)
-    previousIds = new Set(next.map(video => video.videoId))
+    const previousIds = new Set(recentIds.flat())
+    const shuffled = shuffle(pool, random)
+    const next = [...shuffled.filter(video => !previousIds.has(video.videoId)), ...shuffled.filter(video => previousIds.has(video.videoId))].slice(0, 36)
+    recentIds = [next.map(video => video.videoId), ...recentIds].slice(0, 3)
     return next
   }
 

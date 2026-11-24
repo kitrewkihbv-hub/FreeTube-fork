@@ -27,24 +27,6 @@
         </p>
       </router-link>
       <router-link
-        v-if="SUPPORTS_LOCAL_API && !hideLiveStreams"
-        class="navOption mobileShow smallMobileOnlyHidden"
-        role="button"
-        to="/live"
-        :title="$t('Discovery.Live')"
-      >
-        <div class="thumbnailContainer">
-          <FontAwesomeIcon
-            :icon="['fas', 'tower-broadcast']"
-            class="navIcon"
-            :class="applyNavIconExpand"
-          />
-        </div>
-        <p class="navLabel">
-          {{ $t('Discovery.Live') }}
-        </p>
-      </router-link>
-      <router-link
         class="navOption topNavOption mobileShow "
         role="button"
         to="/subscriptions"
@@ -386,8 +368,6 @@ const activeSubscriptions = computed(() => {
 })
 
 /** @type {import('vue').ComputedRef<boolean>} */
-const hideLiveStreams = computed(() => store.getters.getHideLiveStreams)
-
 const hidePopularVideos = computed(() => {
   return store.getters.getHidePopularVideos
 })

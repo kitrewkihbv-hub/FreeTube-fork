@@ -1,3 +1,25 @@
+# MacTube — a FreeTube account-enabled preview
+
+MacTube is an experimental fork of [FreeTube](https://github.com/FreeTubeApp/FreeTube): a desktop YouTube player with optional account sign-in, a separate discovery feed, and customizable viewing controls.
+
+### What's in this preview
+
+- **Discover:** mix YouTube home recommendations with videos from rotating topic searches. Refresh requests a different mix; videos may repeat if YouTube returns limited results.
+- **Subscriptions:** keep subscribed-channel videos separate from discovery. Use local subscriptions or the signed-in YouTube feed; imports can be partial.
+- **Live video:** watch available live streams and use the existing live-chat viewer. The separate Live discovery tab has been removed.
+- **Make it yours:** choose app colors with the palette, switch light/dark themes, select a startup tab, and adjust video width and height independently.
+- **Optional YouTube sign-in:** import supported account data and access account features. Google can see authenticated requests; account imports and synchronization depend on YouTube and may be incomplete.
+
+[Download the latest MacTube builds](https://github.com/kitrewkihbv-hub/FreeTube-with-account-/releases) · [Report a MacTube issue](https://github.com/kitrewkihbv-hub/FreeTube-with-account-/issues)
+
+> **Preview and security note:** MacTube is an unofficial fork, not an official FreeTube release. macOS builds are ad-hoc signed and not notarized by Apple, so Gatekeeper may warn. Virus scans and tests cannot guarantee safety. Account tokens are encrypted using your system's secure storage when available; otherwise the current app can save them unencrypted. The app uses the existing FreeTube data directory, so back up your library before upgrading or using both apps.
+
+---
+
+## About the upstream FreeTube project
+
+The information below describes upstream FreeTube. Its screenshots and download links are for FreeTube, not this MacTube fork.
+
 <p align="center">
  <img alt="" src="/_icons/logoColor.svg" width=500 align="center">
 </p>

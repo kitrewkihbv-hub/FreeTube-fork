@@ -18,7 +18,7 @@ const functions = [
   extract('export async function openDiscoveryFeed(', '\n// #endregion'),
 ].join('\n')
 const quiet = { warn() {} }
-const ctx = vm.createContext({ console: quiet, Utils: { timeToSeconds: () => 0 }, parseListItem: x => x, ClientType: { TV: 'TV', WEB: 'WEB' }, TV_CLIENT_USER_AGENT: 'TV', Mixins: { Feed: class { constructor() { throw Error('no parser') } } } })
+const ctx = vm.createContext({ console: quiet, setTimeout, clearTimeout, Utils: { timeToSeconds: () => 0 }, parseListItem: x => x, ClientType: { TV: 'TV', WEB: 'WEB' }, TV_CLIENT_USER_AGENT: 'TV', Mixins: { Feed: class { constructor() { throw Error('no parser') } } } })
 vm.runInContext(`${rawSource}\n${helperSource}\n${functions}`, ctx)
 const hasLiveBadge = vm.runInContext('hasLiveBadge', ctx)
 const makeBrowser = vm.runInContext('createDiscoveryBrowser', ctx)
@@ -28,23 +28,53 @@ assert.equal(hasLiveBadge({ header: { tileHeaderRenderer: { thumbnailOverlays: [
 assert.equal(hasLiveBadge({ badges: [{ metadataBadgeRenderer: { style: 'BADGE_STYLE_TYPE_LIVE_NOW' } }] }), true)
 const video = n => ({ type: 'video', videoId: `id${n}`, title: `Video ${n}` })
 let pageReads = 0, opens = 0
-const page = n => ({ videos: Array.from({ length: 15 }, (_, i) => video(n * 15 + i)), has_continuation: n < 5, getContinuation: async () => { pageReads++; return page(n + 1) } })
+const page = n => ({ videos: Array.from({ length: 5 }, (_, i) => video(n * 5 + i)), has_continuation: n < 1, getContinuation: async () => { pageReads++; return page(n + 1) } })
 ;(async () => {
-  const browser = makeBrowser({ kind: 'discover', open: async () => { opens++; return page(0) }, random: () => 0.4 })
+  const queries = []
+  const topicIds = new Map()
+  const search = async query => {
+    queries.push(query)
+    if (!topicIds.has(query)) topicIds.set(query, topicIds.size + 1)
+    return Array.from({ length: 15 }, (_, i) => video(1000 + topicIds.get(query) * 100 + i))
+  }
+  const browser = makeBrowser({ kind: 'discover', open: async () => { opens++; return page(0) }, search, random: () => 0.4 })
   const first = await browser.refresh()
   assert.equal(first.length, 36)
-  assert.equal(pageReads, 2)
+  assert.equal(queries.length, 3)
   const next = await browser.refresh()
-  assert.equal(opens, 1, 'refresh advances continuation instead of reloading the first shelf')
-  assert.equal(pageReads, 5)
-  assert.ok(next.filter(v => !first.some(old => old.videoId === v.videoId)).length > 0)
+  assert.equal(opens, 1, 'refresh advances the home continuation')
+  assert.equal(pageReads, 1)
+  assert.equal(queries.length, 6)
+  assert.equal(new Set(queries).size, 6, 'each refresh uses different topic searches')
+  assert.ok(next.filter(v => !first.some(old => old.videoId === v.videoId)).length >= 30, 'refresh replaces most of a fixed home feed')
   assert.equal(new Set(next.map(v => v.videoId)).size, next.length)
   await browser.refresh()
   assert.equal(opens, 2, 'when continuation ends the home feed is requested again')
 
-  const liveBrowser = makeBrowser({ kind: 'live', open: async () => ({ videos: [{ ...video(1), liveNow: true }, video(2)], has_continuation: false }) })
-  assert.deepEqual(Array.from(await liveBrowser.refresh(), v => v.videoId), ['id1'])
-  await assert.rejects(makeBrowser({ kind: 'live', open: async () => ({ videos: [video(2)] }) }).refresh(), /No readable/)
+  // An unavailable or stalled home source must not block refresh if search works.
+  const stuck = makeBrowser({ open: () => new Promise(() => {}), search, timeoutMs: 15 })
+  assert.ok((await stuck.refresh()).length > 0)
+  let releaseHome
+  const delayed = new Promise(resolve => { releaseHome = resolve })
+  let homeRequests = 0
+  const late = makeBrowser({ open: async () => { homeRequests++; return homeRequests === 1 ? delayed : page(0) }, search, timeoutMs: 15 })
+  await late.refresh()
+  releaseHome(page(0))
+  await new Promise(resolve => setTimeout(resolve, 0))
+  await late.refresh()
+  assert.equal(homeRequests, 2, 'a timed-out home request does not overwrite the next request state')
+  const partial = makeBrowser({ open: async () => { throw Error('offline') }, search: async () => [video(99)] })
+  assert.equal((await partial.refresh())[0].videoId, 'id99')
+  await assert.rejects(makeBrowser({ open: async () => { throw Error('offline') }, search: async () => [] }).refresh(), /No readable/)
+
+  const nav = fs.readFileSync('src/renderer/components/SideNav/SideNav.vue', 'utf8')
+  const router = fs.readFileSync('src/renderer/router/index.js', 'utf8')
+  const subscriptions = fs.readFileSync('src/renderer/views/Subscriptions/Subscriptions.vue', 'utf8')
+  const watchPage = fs.readFileSync('src/renderer/views/Watch/Watch.vue', 'utf8')
+  assert.ok(!nav.includes('to="/live"'), 'global Live navigation is removed')
+  assert.ok(router.includes("path: '/live', redirect: '/discover'"), 'old startup links remain usable')
+  assert.ok(subscriptions.includes('SubscriptionsLive'), 'subscribed live streams remain available')
+  assert.ok(/liveChat|live-chat|LiveChat/i.test(watchPage), 'live chat remains in the player')
 
   const makeTile = (id, live) => ({ tileRenderer: { contentId: id, contentType: 'TILE_CONTENT_TYPE_VIDEO', metadata: { tileMetadataRenderer: { title: { simpleText: id } } }, header: { tileHeaderRenderer: { thumbnailOverlays: live ? [{ thumbnailOverlayTimeStatusRenderer: { style: 'LIVE' } }] : [] } }, onSelectCommand: { watchEndpoint: { videoId: id } } } })
   const feed = items => ({ contents: { tvBrowseRenderer: { content: { tvSurfaceContentRenderer: { content: { gridRenderer: { items } } } } } } })

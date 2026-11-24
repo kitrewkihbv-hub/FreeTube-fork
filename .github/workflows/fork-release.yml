@@ -106,8 +106,8 @@ jobs:
           Build of the `arena/64591193-freetube-with-account` branch, from Build run ${{ steps.target.outputs.run_id }}.
 
           Changes in this build:
-          - Adds Discover recommendations and a YouTube-wide Live page, separate from subscriptions.
-          - Refresh mixes available recommendations and continues through YouTube's feed when possible.
+          - Discover refreshes with rotating topic searches and YouTube recommendations, separate from subscriptions.
+          - Removes the dedicated Live discovery tab; live video and chat remain available.
           - The palette opens color theme settings; a separate button switches light and dark.
           - Subscription feed refresh and selection persist, and the picture control adjusts width and height independently.
           - Account imports and subscription synchronization depend on what YouTube returns and can be partial.

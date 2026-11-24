@@ -6,17 +6,17 @@
           <h2>
             <FontAwesomeIcon
               class="discoveryIcon"
-              :icon="kind === 'live' ? ['fas', 'tower-broadcast'] : ['fas', 'compass']"
+              :icon="['fas', 'compass']"
             />
-            {{ kind === 'live' ? $t('Discovery.Live') : $t('Discovery.Discover') }}
+            {{ $t('Discovery.Discover') }}
           </h2>
           <p class="discoveryHint">
-            {{ kind === 'live' ? $t('Discovery.Live Info') : $t('Discovery.Discover Info') }}
+            {{ $t('Discovery.Discover Info') }}
           </p>
         </div>
         <FtButton
           :label="$t('Discovery.Refresh')"
-          :icon="['fas', 'rotate']"
+          :icon="['fas', 'rotate-right']"
           :disabled="loading"
           @click="refresh"
         />
@@ -54,13 +54,9 @@ import FtButton from '../../components/FtButton/FtButton.vue'
 import FtCard from '../../components/ft-card/ft-card.vue'
 import FtElementList from '../../components/FtElementList/FtElementList.vue'
 import FtLoader from '../../components/FtLoader/FtLoader.vue'
-import { openDiscoveryFeed } from '../../helpers/api/local'
+import { getLocalSearchResults, openDiscoveryFeed } from '../../helpers/api/local'
 import { createDiscoveryBrowser } from '../../helpers/api/discoveryFeed'
 import store from '../../store/index'
-
-const props = defineProps({
-  kind: { type: String, required: true },
-})
 
 const videos = shallowRef([])
 const loading = ref(false)
@@ -75,7 +71,10 @@ function resetBrowser() {
   videos.value = []
   error.value = false
   loading.value = false
-  browser = createDiscoveryBrowser({ kind: props.kind, open: kind => openDiscoveryFeed(kind, safetyMode.value) })
+  browser = createDiscoveryBrowser({
+    open: kind => openDiscoveryFeed(kind, safetyMode.value),
+    search: async topic => (await getLocalSearchResults(topic, { type: 'video' }, safetyMode.value)).results,
+  })
   refresh()
 }
 
@@ -96,7 +95,7 @@ async function refresh() {
 }
 
 onMounted(resetBrowser)
-watch([() => props.kind, () => account.value.signedIn, () => account.value.channelId, safetyMode], resetBrowser)
+watch([() => account.value.signedIn, () => account.value.channelId, safetyMode], resetBrowser)
 onBeforeUnmount(() => { generation++ })
 </script>
 
