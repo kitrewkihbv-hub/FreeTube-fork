@@ -1,0 +1,74 @@
+# Publishes the macOS installers from an existing "Build" workflow run as a GitHub Release.
+#
+# The upstream "Upload Release" workflow only publishes to the FreeTubeApp/FreeTube
+# repository, so this fork needs its own way to hand out ready-to-install builds.
+# It does not rebuild anything, it downloads the artifacts of a finished Build run
+# and attaches them to a release, which gives plain download links that do not
+# require being signed in to GitHub (unlike workflow artifacts).
+
+name: Fork Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        type: string
+        required: true
+        description: Run ID of a finished "Build" workflow run to take the macOS installers from
+      tag:
+        type: string
+        required: true
+        description: Tag of the release to create or update (e.g. mac-build-1)
+
+cache-mode: none
+permissions: {}
+
+jobs:
+  release:
+    name: Publish macOS installers
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      actions: read
+
+    steps:
+    - name: Download macOS artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: '*-mac-*'
+        merge-multiple: true
+        path: assets
+        repository: ${{ github.repository }}
+        run-id: ${{ inputs.run_id }}
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+
+    # The .7z files are the same app folder as the .zip files, so they are not needed here
+    - name: Drop the .7z archives
+      shell: bash
+      run: |
+        rm -f assets/*.7z
+        ls -lh assets
+
+    - name: Create release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ inputs.tag }}
+        name: FreeTube with account sign-in (${{ inputs.tag }})
+        body: |
+          Build of the `arena/64591193-freetube-with-account` branch, from Build run ${{ inputs.run_id }}.
+
+          Changes in this build:
+          - Sign in with a Google/YouTube account, using the same QR code sign in flow as SmartTube.
+            Settings → Account → Sign In With Google. The tokens are stored encrypted with the OS keychain.
+          - The video title is no longer drawn over the video when it is zoomed into fullscreen.
+
+          Install on macOS: open the `.dmg` and drag FreeTube to Applications.
+          The build is ad-hoc signed and not notarized, so macOS warns on first launch.
+          Right click the app and choose "Open" (or run
+          `xattr -dr com.apple.quarantine /Applications/FreeTube.app`) to allow it.
+
+          Apple Silicon Macs use the `arm64` files, Intel Macs use the `x64` files.
+        files: assets/*
+        fail_on_unmatched_files: true
