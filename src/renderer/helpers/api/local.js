@@ -14,6 +14,11 @@ import {
   getRelativeTimeFromDate,
 } from '../utils'
 import { parseVideoClipsParams } from './shared'
+import {
+  createYouTubeAccountRawFeed,
+  getYouTubeAccountRawItem,
+  getYouTubeAccountRawText,
+} from './youtubeAccountRawFeed'
 
 const TRACKING_PARAM_NAMES = [
   'utm_source',
@@ -815,6 +820,155 @@ function getYouTubeAccountLibraryShelf(library, sectionName, titleAliases, feedT
 }
 
 /**
+ * Reads an array-valued property while tolerating youtubei.js accessors that reject
+ * a newer YouTube node type. This lets the account import try the alternate feed shape.
+ * @param {object|undefined} value
+ * @param {string} propertyName
+ * @returns {object[]}
+ */
+function getYouTubeAccountFeedArray(value, propertyName) {
+  try {
+    const items = value?.[propertyName]
+
+    return Array.isArray(items) ? items : []
+  } catch (error) {
+    console.warn(`failed to read YouTube account feed ${propertyName}; trying its alternate item shape`, error)
+    return []
+  }
+}
+
+/**
+ * Returns history rows from both the normal feed accessor and its parsed sections.
+ * Some YouTube history pages have nested rows that are absent from `feed.videos`.
+ * @param {object|undefined} feed
+ * @returns {object[]}
+ */
+function getYouTubeAccountHistoryVideos(feed) {
+  const rows = [
+    ...getYouTubeAccountFeedArray(feed, 'videos'),
+    ...getYouTubeAccountFeedArray(feed, 'items'),
+    ...getYouTubeAccountFeedArray(feed, 'sections').flatMap(section => getYouTubeAccountFeedArray(section, 'contents'))
+  ]
+
+  return Array.from(new Set(rows))
+}
+
+/**
+ * Returns playlist rows from a parsed feed, preferring its `items` when present and
+ * falling back to `videos` when the Playlist.items getter rejects a node type.
+ * @param {object|undefined} feed
+ * @returns {object[]}
+ */
+function getYouTubeAccountPlaylistVideos(feed) {
+  const items = getYouTubeAccountFeedArray(feed, 'items')
+
+  return items.length > 0 ? items : getYouTubeAccountFeedArray(feed, 'videos')
+}
+
+/**
+ * Builds a minimal local video record when youtubei.js can see a video ID but its
+ * current parser doesn't recognize the enclosing YouTube response node.
+ * @param {object} item
+ * @returns {object|null}
+ */
+function getYouTubeAccountVideoFallback(item) {
+  try {
+    const rawItem = getYouTubeAccountRawItem(item)
+    const source = rawItem ?? item
+    const type = typeof item?.type === 'string' ? item.type.toLowerCase() : ''
+    const contentType = String(item?.content_type ?? source?.contentType ?? source?.content_type ?? '').toUpperCase()
+    const isVideoLockup = ['VIDEO', 'MOVIE', 'SHORT', 'STATION'].some(value => contentType.includes(value))
+    const isVideoTile = contentType === 'TILE_CONTENT_TYPE_VIDEO'
+    const endpointPayloads = [
+      item?.endpoint?.payload,
+      item?.navigation_endpoint?.payload,
+      item?.navigationEndpoint?.payload,
+      item?.on_tap_endpoint?.payload,
+      item?.onTapEndpoint?.payload,
+      item?.service_endpoint?.payload,
+      item?.serviceEndpoint?.payload,
+      source?.endpoint,
+      source?.navigationEndpoint,
+      source?.onSelectCommand,
+      source?.onTapEndpoint,
+      source?.onTap,
+      source?.serviceEndpoint,
+      source?.rendererContext?.commandContext,
+      source?.rendererContext?.commandContext?.onTap
+    ]
+    const endpointVideoId = endpointPayloads
+      .map(payload => payload?.videoId ?? payload?.watchEndpoint?.videoId ?? payload?.reelWatchEndpoint?.videoId ??
+        payload?.innertubeCommand?.watchEndpoint?.videoId ?? payload?.innertubeCommand?.reelWatchEndpoint?.videoId ??
+        payload?.command?.watchEndpoint?.videoId ?? payload?.command?.reelWatchEndpoint?.videoId)
+      .find(value => typeof value === 'string' && value.trim() !== '')
+    const hasVideoNodeType = type.includes('video') || type.includes('movie') || type === 'reelitem' ||
+      isVideoTile || rawItem !== undefined
+    const videoId = item?.video_id ?? item?.videoId ?? source?.video_id ?? source?.videoId ?? endpointVideoId ??
+      ((isVideoLockup || isVideoTile) ? source?.content_id ?? source?.contentId : undefined) ??
+      (hasVideoNodeType ? item?.id ?? source?.id : undefined)
+
+    if (typeof videoId !== 'string' || videoId.trim() === '') {
+      return null
+    }
+
+    const normalizedVideoId = videoId.trim()
+    const rawTitle = item?.title?.text ?? item?.title ?? item?.metadata?.title?.text ?? item?.overlay_metadata?.primary_text?.text ??
+      source?.title ?? source?.metadata?.lockupMetadataViewModel?.title ??
+      source?.metadata?.tileMetadataRenderer?.title ?? source?.overlay?.reelPlayerOverlayRenderer?.reelPlayerHeaderSupportedRenderers?.reelPlayerHeaderRenderer?.videoTitle
+    const title = getYouTubeAccountRawText(rawTitle)
+    const tileAuthorText = source?.metadata?.tileMetadataRenderer?.lines?.[0]?.lineRenderer?.items?.[0]?.lineItemRenderer?.text
+    const rawAuthor = item?.author?.name ?? item?.author?.text ?? item?.byline?.text ?? item?.owner?.name ??
+      source?.author?.name ?? source?.author?.text ?? source?.shortBylineText ?? source?.longBylineText ?? tileAuthorText
+    const author = getYouTubeAccountRawText(rawAuthor)
+    const authorRuns = source?.shortBylineText?.runs ?? source?.longBylineText?.runs ?? []
+    const authorId = item?.author?.id ?? source?.author?.id ?? authorRuns
+      .map(run => run?.navigationEndpoint?.browseEndpoint?.browseId)
+      .find(value => typeof value === 'string')
+    const thumbnailList = source?.thumbnail?.thumbnails ?? source?.thumbnail
+    const thumbnail = item?.thumbnails?.[0]?.url ?? (Array.isArray(thumbnailList) ? thumbnailList.at(-1)?.url : undefined) ??
+      source?.content_image?.primary_thumbnail?.image?.[0]?.url ?? source?.content_image?.image?.[0]?.url ??
+      source?.header?.tileHeaderRenderer?.thumbnail?.thumbnails?.at(-1)?.url
+    const directLengthSeconds = item?.duration?.seconds ?? source?.duration?.seconds ?? source?.lengthSeconds
+    const lengthText = getYouTubeAccountRawText(source?.lengthText ?? source?.durationText ??
+      source?.header?.tileHeaderRenderer?.thumbnailOverlays?.find(overlay => overlay?.thumbnailOverlayTimeStatusRenderer)?.thumbnailOverlayTimeStatusRenderer?.text)
+    const parsedLengthSeconds = Number.isFinite(directLengthSeconds)
+      ? directLengthSeconds
+      : lengthText
+        ? Utils.timeToSeconds(lengthText)
+        : undefined
+
+    return {
+      type: 'video',
+      videoId: normalizedVideoId,
+      title: title || `YouTube video ${normalizedVideoId}`,
+      author,
+      authorId: typeof authorId === 'string' ? authorId : null,
+      thumbnail,
+      lengthSeconds: Number.isFinite(parsedLengthSeconds) ? parsedLengthSeconds : ''
+    }
+  } catch (error) {
+    console.warn('failed to extract a video ID from an unrecognized YouTube account item', error)
+    return null
+  }
+}
+
+/**
+ * Requests a raw account browse page through the authenticated Innertube Actions instance.
+ * @param {object|undefined} actions
+ * @param {string} browseId
+ * @returns {Promise<object|undefined>}
+ */
+async function getYouTubeAccountRawBrowseFeed(actions, browseId) {
+  if (typeof actions?.execute !== 'function') {
+    return undefined
+  }
+
+  const response = await actions.execute('/browse', { browseId })
+
+  return createYouTubeAccountRawFeed(response, actions)
+}
+
+/**
  * Finds watch-history data for a single authenticated InnerTube client.
  * @param {Innertube} innertube
  * @param {string} clientLabel
@@ -833,7 +987,23 @@ async function getYouTubeAccountHistoryFeed(innertube, clientLabel) {
     console.warn(`failed to retrieve YouTube history with the ${clientLabel} client; trying its Library history shelf`, error)
   }
 
-  if (!historyFeed || (!historyFeed.videos?.length && !historyFeed.has_continuation)) {
+  if (!historyFeed || getYouTubeAccountHistoryVideos(historyFeed).length === 0) {
+    try {
+      // Use Innertube's Actions directly so this still works if the History parser fails
+      // before it can construct a feed exposing the same Actions instance.
+      const rawHistoryFeed = await getYouTubeAccountRawBrowseFeed(innertube.actions, 'FEhistory')
+
+      if (getYouTubeAccountHistoryVideos(rawHistoryFeed).length > 0 || rawHistoryFeed?.has_continuation) {
+        // The current youtubei.js History parser does not expose TV browse tabs as video rows.
+        historyFeed = rawHistoryFeed
+      }
+    } catch (error) {
+      historyFeedError ??= error
+      console.warn(`failed to read the raw YouTube TV history page with the ${clientLabel} client`, error)
+    }
+  }
+
+  if (!historyFeed || (!getYouTubeAccountHistoryVideos(historyFeed).length && !historyFeed.has_continuation)) {
     try {
       const library = await innertube.getLibrary()
       const historyShelf = getYouTubeAccountLibraryShelf(library, 'history', ['history', 'watch history'], 'history')
@@ -849,10 +1019,10 @@ async function getYouTubeAccountHistoryFeed(innertube, clientLabel) {
         }
       }
 
-      if (libraryHistoryFeed?.videos?.length > 0 || libraryHistoryFeed?.has_continuation) {
+      if (getYouTubeAccountHistoryVideos(libraryHistoryFeed).length > 0 || libraryHistoryFeed?.has_continuation) {
         historyFeed = libraryHistoryFeed
         usesHistoryTimestamps = true
-      } else if (historyShelf?.contents?.length > 0 && (!historyFeed || !historyFeed.videos?.length)) {
+      } else if (historyShelf?.contents?.length > 0 && (!historyFeed || !getYouTubeAccountHistoryVideos(historyFeed).length)) {
         // Some YouTube clients expose the recent history items on the Library shelf
         // but omit the shelf's "show all" button. Keep those visible recent items.
         // The visible shelf is only a preview, so report this as a partial import.
@@ -874,15 +1044,35 @@ async function getYouTubeAccountHistoryFeed(innertube, clientLabel) {
 
   // Some YouTube client responses leave FEhistory and the Library shelf empty even
   // when the account has history. YouTube also exposes that data as the HL playlist.
-  if (!historyFeed || !historyFeed.videos?.length || historyTruncated) {
+  if (!historyFeed || !getYouTubeAccountHistoryVideos(historyFeed).length || historyTruncated) {
     try {
-      const historyPlaylistFeed = await innertube.getPlaylist('HL')
+      let historyPlaylistFeed
 
-      if (historyPlaylistFeed.videos?.length > 0 || historyPlaylistFeed.has_continuation) {
+      try {
+        historyPlaylistFeed = await innertube.getPlaylist('HL')
+      } catch (error) {
+        historyFeedError ??= error
+        console.warn(`failed to parse the YouTube HL playlist with the ${clientLabel} client; trying its raw browse result`, error)
+      }
+
+      if (!historyPlaylistFeed || getYouTubeAccountHistoryVideos(historyPlaylistFeed).length === 0) {
+        try {
+          const rawHistoryPlaylistFeed = await getYouTubeAccountRawBrowseFeed(innertube.actions, 'VLHL')
+
+          if (getYouTubeAccountHistoryVideos(rawHistoryPlaylistFeed).length > 0 || rawHistoryPlaylistFeed?.has_continuation) {
+            historyPlaylistFeed = rawHistoryPlaylistFeed
+          }
+        } catch (error) {
+          historyFeedError ??= error
+          console.warn(`failed to read the raw YouTube HL playlist with the ${clientLabel} client`, error)
+        }
+      }
+
+      if (getYouTubeAccountHistoryVideos(historyPlaylistFeed).length > 0 || historyPlaylistFeed?.has_continuation) {
         historyFeed = historyPlaylistFeed
         historyTruncated = false
         usesHistoryTimestamps = false
-      } else if (!historyFeed) {
+      } else if (!historyFeed && historyPlaylistFeed) {
         historyFeed = historyPlaylistFeed
         usesHistoryTimestamps = false
       }
@@ -926,11 +1116,11 @@ export async function getYouTubeAccountHistory() {
   // The TV client is used for OAuth and account mutations, but some signed-in TV
   // responses omit account library contents that are present on YouTube's WEB client.
   // Retry only empty or already-incomplete results; keep the normal sync to one client.
-  if (!historyFeed?.videos?.length || historyTruncated) {
+  if (!getYouTubeAccountHistoryVideos(historyFeed).length || historyTruncated) {
     try {
       const webInnertube = await getYouTubeAccountWebInnertube()
       const webHistory = await getYouTubeAccountHistoryFeed(webInnertube, 'WEB')
-      const webFeedHasData = webHistory.feed?.videos?.length > 0 || webHistory.feed?.has_continuation
+      const webFeedHasData = getYouTubeAccountHistoryVideos(webHistory.feed).length > 0 || webHistory.feed?.has_continuation
 
       if (webFeedHasData) {
         historyFeed = webHistory.feed
@@ -960,22 +1150,28 @@ export async function getYouTubeAccountHistory() {
   let historyItemsRead = 0
 
   for (let page = 0; page < YOUTUBE_ACCOUNT_HISTORY_PAGES_TO_FETCH; page++) {
-    for (const video of historyFeed.videos ?? []) {
+    for (const video of getYouTubeAccountHistoryVideos(historyFeed)) {
       historyItemsRead++
       let videoData
 
-      try {
-        videoData = parseLocalListVideo(video)
-      } catch (error) {
-        console.warn('failed to parse a YouTube history item using the list parser; trying the playlist parser', error)
-      }
-
-      if (!videoData?.videoId) {
+      if (getYouTubeAccountRawItem(video)) {
+        videoData = getYouTubeAccountVideoFallback(video)
+      } else {
         try {
-          videoData = parseLocalPlaylistVideos([video])[0]
+          videoData = parseLocalListVideo(video)
         } catch (error) {
-          console.warn('skipping a YouTube history item that could not be parsed', error)
+          console.warn('failed to parse a YouTube history item using the list parser; trying the playlist parser', error)
         }
+
+        if (!videoData?.videoId) {
+          try {
+            videoData = parseLocalPlaylistVideos([video])[0]
+          } catch (error) {
+            console.warn('skipping a YouTube history item that could not be parsed', error)
+          }
+        }
+
+        videoData ??= getYouTubeAccountVideoFallback(video)
       }
 
       if (!videoData?.videoId) {
@@ -1105,17 +1301,15 @@ export async function getYouTubeAccountPlaylists() {
     }
   }
 
-  // This endpoint is the primary source for the account's custom playlists.
-  try {
-    let feed = await innertube.getPlaylists()
-    playlistIndexSucceeded = true
+  const readPlaylistIndex = async (initialFeed) => {
+    let feed = initialFeed
 
     for (let page = 0; page < YOUTUBE_ACCOUNT_PLAYLIST_INDEX_PAGES_TO_FETCH; page++) {
-      for (const playlist of feed.playlists ?? []) {
+      for (const playlist of getYouTubeAccountFeedArray(feed, 'playlists')) {
         addPlaylistSummary(playlist)
       }
 
-      if (!feed.has_continuation) {
+      if (!feed?.has_continuation) {
         break
       }
 
@@ -1126,10 +1320,42 @@ export async function getYouTubeAccountPlaylists() {
 
       feed = await feed.getContinuation()
     }
+  }
+
+  const tryReadRawPlaylistIndex = async (actions, clientLabel) => {
+    try {
+      const rawFeed = await getYouTubeAccountRawBrowseFeed(actions, 'FEplaylist_aggregation')
+
+      if (getYouTubeAccountFeedArray(rawFeed, 'playlists').length > 0 || rawFeed?.has_continuation) {
+        await readPlaylistIndex(rawFeed)
+        playlistIndexSucceeded = true
+        playlistIndexFailed = false
+        return true
+      }
+    } catch (error) {
+      sourceErrors.push(error)
+      console.warn(`failed to read the raw YouTube playlist index with the ${clientLabel} client`, error)
+    }
+
+    return false
+  }
+
+  // This endpoint is the primary source for the account's custom playlists.
+  try {
+    const feed = await innertube.getPlaylists()
+    playlistIndexSucceeded = true
+    await readPlaylistIndex(feed)
   } catch (error) {
     sourceErrors.push(error)
     playlistIndexFailed = true
     console.warn('failed to retrieve YouTube playlist index; trying the Library shelf', error)
+  }
+
+  // TV browse responses currently use tvBrowseRenderer tabs that youtubei.js may
+  // leave out of Feed.playlists. Read the authenticated endpoint raw if parsing failed
+  // or yielded no playlist cards.
+  if (playlistSummaries.size === 0) {
+    await tryReadRawPlaylistIndex(innertube.actions, 'TV')
   }
 
   let library
@@ -1158,31 +1384,19 @@ export async function getYouTubeAccountPlaylists() {
       let webLibrarySucceeded = false
 
       try {
-        let feed = await webPlaylistInnertube.getPlaylists()
+        const feed = await webPlaylistInnertube.getPlaylists()
         webIndexSucceeded = true
         playlistIndexSucceeded = true
         playlistIndexFailed = false
-
-        for (let page = 0; page < YOUTUBE_ACCOUNT_PLAYLIST_INDEX_PAGES_TO_FETCH; page++) {
-          for (const playlist of feed.playlists ?? []) {
-            addPlaylistSummary(playlist)
-          }
-
-          if (!feed.has_continuation) {
-            break
-          }
-
-          if (page === YOUTUBE_ACCOUNT_PLAYLIST_INDEX_PAGES_TO_FETCH - 1) {
-            truncated = true
-            break
-          }
-
-          feed = await feed.getContinuation()
-        }
+        await readPlaylistIndex(feed)
       } catch (error) {
         sourceErrors.push(error)
         playlistIndexFailed = true
         console.warn('failed to retrieve the YouTube playlist index with the WEB client', error)
+      }
+
+      if (playlistSummaries.size === 0) {
+        webIndexSucceeded = await tryReadRawPlaylistIndex(webPlaylistInnertube.actions, 'WEB') || webIndexSucceeded
       }
 
       try {
@@ -1250,7 +1464,7 @@ export async function getYouTubeAccountPlaylists() {
       remainingContentPages--
       pagesFetched++
 
-      const feedItems = feed?.items ?? feed?.videos
+      const feedItems = getYouTubeAccountPlaylistVideos(feed)
       const useFallbackItems = !feedItems?.length && fallbackItems.length > 0
       const items = useFallbackItems ? fallbackItems : feedItems ?? []
 
@@ -1262,18 +1476,24 @@ export async function getYouTubeAccountPlaylists() {
       for (const item of items) {
         let video
 
-        try {
-          video = parseLocalPlaylistVideos([item])[0]
-        } catch (error) {
-          console.warn('failed to parse a YouTube playlist item with the playlist parser; trying the list parser', error)
-        }
-
-        if (!video?.videoId) {
+        if (getYouTubeAccountRawItem(item)) {
+          video = getYouTubeAccountVideoFallback(item)
+        } else {
           try {
-            video = parseLocalListVideo(item)
+            video = parseLocalPlaylistVideos([item])[0]
           } catch (error) {
-            console.warn('skipping a YouTube playlist item that could not be parsed', error)
+            console.warn('failed to parse a YouTube playlist item with the playlist parser; trying the list parser', error)
           }
+
+          if (!video?.videoId) {
+            try {
+              video = parseLocalListVideo(item)
+            } catch (error) {
+              console.warn('skipping a YouTube playlist item that could not be parsed', error)
+            }
+          }
+
+          video ??= getYouTubeAccountVideoFallback(item)
         }
 
         if (!video?.videoId) {
@@ -1308,7 +1528,41 @@ export async function getYouTubeAccountPlaylists() {
     return videos
   }
 
-  const hasPlaylistFeedData = (feed) => Boolean(feed?.items?.length || feed?.videos?.length || feed?.has_continuation)
+  const hasPlaylistFeedData = (feed) => Boolean(getYouTubeAccountPlaylistVideos(feed).length || feed?.has_continuation)
+
+  const getRawPlaylistFeed = async (feed, playlistId, actions) => {
+    if (getYouTubeAccountPlaylistVideos(feed).length > 0) {
+      return feed
+    }
+
+    const browseId = playlistId.startsWith('VL') ? playlistId : `VL${playlistId}`
+    const rawFeed = await getYouTubeAccountRawBrowseFeed(actions ?? feed?.actions, browseId)
+
+    return hasPlaylistFeedData(rawFeed) ? rawFeed : feed
+  }
+
+  const fetchPlaylistFeed = async (client, playlistId) => {
+    let feed
+    let fetchError
+
+    try {
+      feed = await client.getPlaylist(playlistId)
+    } catch (error) {
+      fetchError = error
+    }
+
+    try {
+      feed = await getRawPlaylistFeed(feed, playlistId, client.actions)
+    } catch (error) {
+      fetchError ??= error
+    }
+
+    if (fetchError && !hasPlaylistFeedData(feed)) {
+      throw fetchError
+    }
+
+    return feed
+  }
 
   const getAlternatePlaylistFeed = async (playlistId) => {
     if (playlistInnertube === innertube) {
@@ -1318,10 +1572,10 @@ export async function getYouTubeAccountPlaylists() {
         return undefined
       }
 
-      return await webPlaylistInnertube.getPlaylist(playlistId)
+      return await fetchPlaylistFeed(webPlaylistInnertube, playlistId)
     }
 
-    return await innertube.getPlaylist(playlistId)
+    return await fetchPlaylistFeed(innertube, playlistId)
   }
 
   const customPlaylistSummaries = Array.from(playlistSummaries.values()).slice(0, YOUTUBE_ACCOUNT_PLAYLISTS_TO_FETCH)
@@ -1331,7 +1585,7 @@ export async function getYouTubeAccountPlaylists() {
     let playlistFetchError
 
     try {
-      playlistFeed = await playlistInnertube.getPlaylist(summary.id)
+      playlistFeed = await fetchPlaylistFeed(playlistInnertube, summary.id)
     } catch (error) {
       playlistFetchError = error
     }
@@ -1396,7 +1650,7 @@ export async function getYouTubeAccountPlaylists() {
     // stable Watch Later / Liked playlist IDs directly first, then use the Library
     // shelf's "show all" endpoint and visible items as fallbacks.
     try {
-      playlistFeed = await playlistInnertube.getPlaylist(playlistId)
+      playlistFeed = await fetchPlaylistFeed(playlistInnertube, playlistId)
     } catch (error) {
       playlistFetchError = error
     }
@@ -1404,9 +1658,10 @@ export async function getYouTubeAccountPlaylists() {
     if (!hasPlaylistFeedData(playlistFeed) && shelf?.getAll) {
       try {
         const shelfFeed = await shelf.getAll()
+        const rawShelfFeed = await getRawPlaylistFeed(shelfFeed, playlistId)
 
-        if (hasPlaylistFeedData(shelfFeed) || (!playlistFeed && shelfFeed)) {
-          playlistFeed = shelfFeed
+        if (hasPlaylistFeedData(rawShelfFeed) || (!playlistFeed && rawShelfFeed)) {
+          playlistFeed = rawShelfFeed
           playlistFetchError = undefined
         }
       } catch (error) {

@@ -87,6 +87,7 @@ jobs:
           - Signing in imports YouTube subscriptions, recent watch history, custom playlists, Watch Later,
             and liked videos into FreeTube locally. Existing local history and playlist items are preserved;
             these imports do not write anything back to YouTube.
+          - Improves compatibility with TV browse response shapes when importing history and playlists.
           - In the watch player, use the overflow menu near subtitles to change video size; the
             setting also has a fine-control slider in Settings → Player.
           - The video title is no longer drawn over the video when it is zoomed into fullscreen.
