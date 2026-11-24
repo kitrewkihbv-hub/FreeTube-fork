@@ -166,11 +166,18 @@
           </p>
           <template v-if="accountFeed.length > 0">
             <p
-              v-if="accountFeedInfo?.source === 'channelUploads'"
+              v-if="accountFeedInfo?.source === 'channelUploads' || accountFeedInfo?.source === 'mixed'"
               class="accountFeedInfo"
               role="status"
             >
               {{ $t('Subscriptions.Channel Uploads Fallback', { count: accountFeedInfo.channelCount, failed: accountFeedInfo.failedChannelCount }) }}
+            </p>
+            <p
+              v-else-if="accountFeedInfo?.partial"
+              class="accountFeedInfo"
+              role="status"
+            >
+              {{ $t('Subscriptions.Account Feed Partial') }}
             </p>
             <FtElementList
               :data="accountFeed"
@@ -261,6 +268,8 @@ async function requestAccountFeed(refresh = false) {
     console.error('failed to load the YouTube account feed', error)
   } finally {
     accountFeedLoading.value = false
+    // A subscription change can invalidate the feed while a request is in flight.
+    if (!accountFeedError.value && showYouTubeAccountFeed.value && accountFeedCache.value === null) loadAccountFeed()
   }
 }
 
@@ -279,7 +288,11 @@ function refreshAccountFeed() {
 }
 
 watch(accountFeedCache, value => {
-  if (value !== null) accountFeedError.value = false
+  if (value !== null) {
+    accountFeedError.value = false
+  } else if (showYouTubeAccountFeed.value && !accountFeedLoading.value) {
+    loadAccountFeed()
+  }
 })
 
 watch(showYouTubeAccountFeed, (value) => {

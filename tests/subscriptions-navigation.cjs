@@ -11,7 +11,7 @@ const storeSource = fs.readFileSync('src/renderer/store/modules/youtube-account.
 let resolveFeed
 let rejectFeed
 let calls = 0
-const storeContext = vm.createContext({ getYouTubeAccountActivityFeed: () => { calls++; return new Promise((resolve, reject) => { resolveFeed = resolve; rejectFeed = reject }) } })
+const storeContext = vm.createContext({ setYouTubeAccountSubscription: async () => {}, getYouTubeAccountActivityFeed: () => { calls++; return new Promise((resolve, reject) => { resolveFeed = resolve; rejectFeed = reject }) } })
 vm.runInContext(storeSource, storeContext)
 const accountModule = storeContext.account
 accountModule.state = Vue.reactive(accountModule.state)
@@ -32,7 +32,7 @@ const store = {
   commit(name, value) { accountModule.mutations[name](accountModule.state, value) },
   dispatch(name, value) {
     if (name === 'updateUseYouTubeAccountFeed') { preferences.useAccount = value; return Promise.resolve() }
-    return accountModule.actions[name]({ state: accountModule.state, commit: this.commit.bind(this) }, value)
+    return accountModule.actions[name]({ state: accountModule.state, commit: this.commit.bind(this), dispatch: this.dispatch.bind(this) }, value)
   },
 }
 const passthrough = { setup: (_, { slots }) => () => Vue.h('div', slots.default?.()) }
@@ -121,6 +121,20 @@ const flush = async () => { await new Promise(resolve => setImmediate(resolve));
   resolveFeed({ videos: [{ type: 'video', videoId: 'three', title: 'LATEST ACCOUNT VIDEO' }], source: 'youtube', partial: false })
   await flush()
   assert.doesNotMatch(text(root), /Subscriptions.YouTube Account Feed Refresh Error/)
+  // A subscription change during a refresh must not reintroduce an old feed.
+  findButton(root, 'Subscriptions.Refresh').props.onClick()
+  await flush()
+  assert.equal(calls, 6)
+  const staleRequest = resolveFeed
+  await store.dispatch('setYouTubeAccountSubscription', { channelId: 'channel', subscribed: false })
+  await flush()
+  staleRequest({ videos: [{ type: 'video', videoId: 'stale', title: 'STALE VIDEO' }], source: 'youtube' })
+  await flush()
+  assert.equal(calls, 7, 'invalidating a running feed triggers a fresh request')
+  assert.doesNotMatch(text(root), /STALE VIDEO/)
+  resolveFeed({ videos: [{ type: 'video', videoId: 'four', title: 'AFTER UNSUBSCRIBE' }], source: 'youtube' })
+  await flush()
+  assert.match(text(root), /AFTER UNSUBSCRIBE/)
   findButton(root, 'Subscriptions.Switch to Local Feed').props.onClick()
   await flush()
   assert.match(text(root), /LOCAL VIDEOS/)
@@ -130,7 +144,7 @@ const flush = async () => { await new Promise(resolve => setImmediate(resolve));
   assert.match(text(root), /LOCAL VIDEOS/, 'chosen local source survives navigation')
   findButton(root, 'Subscriptions.Switch to YouTube Feed').props.onClick()
   await flush()
-  assert.match(text(root), /LATEST ACCOUNT VIDEO/, 'switching back restores cached YouTube videos')
+  assert.match(text(root), /AFTER UNSUBSCRIBE/, 'switching back restores cached YouTube videos')
   app.unmount()
   console.log('Subscriptions navigation and feed choice tests passed')
 })().catch(error => { console.error(error); process.exitCode = 1 })

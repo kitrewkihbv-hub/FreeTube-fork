@@ -30,42 +30,49 @@ const video = n => ({ type: 'video', videoId: `id${n}`, title: `Video ${n}` })
 let pageReads = 0, opens = 0
 const page = n => ({ videos: Array.from({ length: 5 }, (_, i) => video(n * 5 + i)), has_continuation: n < 1, getContinuation: async () => { pageReads++; return page(n + 1) } })
 ;(async () => {
+  const history = [
+    { videoId: 'watched1', title: 'Cooking with carrots', authorId: 'cook' },
+    { videoId: 'watched2', title: 'Baking bread at home', authorId: 'baker' },
+    { videoId: 'watched3', title: 'Vegetable recipes', authorId: 'cook' },
+  ]
   const queries = []
-  const topicIds = new Map()
   const search = async query => {
     queries.push(query)
-    if (!topicIds.has(query)) topicIds.set(query, topicIds.size + 1)
-    return Array.from({ length: 15 }, (_, i) => video(1000 + topicIds.get(query) * 100 + i))
+    return [{ ...video(500 + queries.length), title: `Related to ${query}` }, { ...video(999), videoId: 'watched1' }]
   }
-  const browser = makeBrowser({ kind: 'discover', open: async () => { opens++; return page(0) }, search, random: () => 0.4 })
+  const browser = makeBrowser({ kind: 'discover', open: async () => { opens++; return page(0) }, search, getHistory: () => history })
   const first = await browser.refresh()
-  assert.equal(first.length, 36)
-  assert.equal(queries.length, 3)
+  assert.equal(queries.length, 2)
+  assert.deepEqual(queries, ['Cooking with carrots', 'Vegetable recipes'], 'repeatedly watched channels are prioritised')
+  assert.ok(first.some(v => v.title === 'Related to Cooking with carrots'))
+  assert.ok(!first.some(v => v.videoId === 'watched1'), 'watched videos are excluded')
   const next = await browser.refresh()
   assert.equal(opens, 1, 'refresh advances the home continuation')
   assert.equal(pageReads, 1)
-  assert.equal(queries.length, 6)
-  assert.equal(new Set(queries).size, 6, 'each refresh uses different topic searches')
-  assert.ok(next.filter(v => !first.some(old => old.videoId === v.videoId)).length >= 30, 'refresh replaces most of a fixed home feed')
+  assert.equal(queries[2], 'Baking bread at home', 'subsequent refresh rotates through watched interests')
+  assert.ok(next.some(v => !first.some(old => old.videoId === v.videoId)))
   assert.equal(new Set(next.map(v => v.videoId)).size, next.length)
   await browser.refresh()
   assert.equal(opens, 2, 'when continuation ends the home feed is requested again')
 
-  // An unavailable or stalled home source must not block refresh if search works.
-  const stuck = makeBrowser({ open: () => new Promise(() => {}), search, timeoutMs: 15 })
+  let noHistoryQueries = 0
+  const noHistory = makeBrowser({ open: async () => page(0), search: async () => { noHistoryQueries++; return [] } })
+  await noHistory.refresh()
+  assert.equal(noHistoryQueries, 0, 'never search unrelated preset topics')
+  const stuck = makeBrowser({ open: () => new Promise(() => {}), search, getHistory: () => history, timeoutMs: 15 })
   assert.ok((await stuck.refresh()).length > 0)
   let releaseHome
   const delayed = new Promise(resolve => { releaseHome = resolve })
   let homeRequests = 0
-  const late = makeBrowser({ open: async () => { homeRequests++; return homeRequests === 1 ? delayed : page(0) }, search, timeoutMs: 15 })
+  const late = makeBrowser({ open: async () => { homeRequests++; return homeRequests === 1 ? delayed : page(0) }, search, getHistory: () => history, timeoutMs: 15 })
   await late.refresh()
   releaseHome(page(0))
   await new Promise(resolve => setTimeout(resolve, 0))
   await late.refresh()
-  assert.equal(homeRequests, 2, 'a timed-out home request does not overwrite the next request state')
-  const partial = makeBrowser({ open: async () => { throw Error('offline') }, search: async () => [video(99)] })
+  assert.equal(homeRequests, 2, 'a timed-out request does not overwrite the next request state')
+  const partial = makeBrowser({ open: async () => { throw Error('offline') }, getHistory: () => history, search: async () => [video(99)] })
   assert.equal((await partial.refresh())[0].videoId, 'id99')
-  await assert.rejects(makeBrowser({ open: async () => { throw Error('offline') }, search: async () => [] }).refresh(), /No readable/)
+  await assert.rejects(makeBrowser({ open: async () => { throw Error('offline') } }).refresh(), /No readable/)
 
   const nav = fs.readFileSync('src/renderer/components/SideNav/SideNav.vue', 'utf8')
   const router = fs.readFileSync('src/renderer/router/index.js', 'utf8')
@@ -80,12 +87,20 @@ const page = n => ({ videos: Array.from({ length: 5 }, (_, i) => video(n * 5 + i
   const feed = items => ({ contents: { tvBrowseRenderer: { content: { tvSurfaceContentRenderer: { content: { gridRenderer: { items } } } } } } })
   const requests = []
   ctx.getYouTubeAccountInnertube = async () => { throw Error('account unavailable') }
+  ctx.getYouTubeAccountWebInnertube = async () => { throw Error('account web unavailable') }
   ctx.createInnertube = async options => ({ actions: { execute: async (_, params) => { requests.push([options.clientType, params.browseId]); return feed([makeTile('live1', true), makeTile('vod2', false)]) } } })
   ctx.getLocalSearchResults = async () => { throw Error('should not need search') }
   const live = await vm.runInContext("openDiscoveryFeed('live')", ctx)
   assert.equal(requests[0][1], 'FEtopics_live')
   assert.deepEqual(Array.from(live.videos, v => v.videoId), ['live1'])
   assert.equal(live.videos[0].liveNow, true)
+
+  requests.length = 0
+  await assert.rejects(vm.runInContext("openDiscoveryFeed('discover', false, true)", ctx), /Unable to load/)
+  assert.equal(requests.length, 0, 'signed-in browsing must not silently use an anonymous home feed')
+  ctx.getYouTubeAccountWebInnertube = async () => ({ actions: { execute: async () => feed([makeTile('personalized', false)]) } })
+  const signedInHome = await vm.runInContext("openDiscoveryFeed('discover', false, true)", ctx)
+  assert.equal(signedInHome.videos[0].videoId, 'personalized')
 
   requests.length = 0
   ctx.getYouTubeAccountInnertube = async () => { throw Error('must skip account in restricted mode') }

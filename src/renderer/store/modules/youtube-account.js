@@ -400,14 +400,16 @@ const actions = {
 
   /**
    * Subscribes to or unsubscribes from a channel on YouTube with the signed in account
-   * @param {object} _
+   * @param {object} context
+   * @param {Function} context.dispatch
    * @param {object} payload
    * @param {string} payload.channelId
    * @param {boolean} payload.subscribed
    */
-  async setYouTubeAccountSubscription(_, { channelId, subscribed }) {
+  async setYouTubeAccountSubscription({ dispatch }, { channelId, subscribed }) {
     try {
       await setYouTubeAccountSubscription(channelId, subscribed)
+      await dispatch('clearYouTubeAccountFeed')
     } catch (error) {
       console.error('failed to change the subscription on YouTube', error)
       throw error

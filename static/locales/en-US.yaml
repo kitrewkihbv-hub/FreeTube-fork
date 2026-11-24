@@ -135,7 +135,8 @@ Subscriptions:
   Load More Posts: Load More Posts
   Subscriptions Tabs: Subscriptions Tabs
   All Subscription Tabs Hidden: 'All subscription tabs are hidden. To see content here, please unhide some tabs in the "{subsection}" section in "{settingsSection}".'
-  Channel Uploads Fallback: "YouTube’s account feed could not be read. Showing recent uploads from up to {count} subscribed channels instead; this list may be incomplete. Channels that could not be loaded: {failed}."
+  Account Feed Partial: YouTube returned a limited subscription feed. Some subscribed channels or videos may be missing.
+  Channel Uploads Fallback: "Showing recent uploads from up to {count} subscribed channels; results may be incomplete. Channels that could not be loaded: {failed}."
   Feed Source: Choose which subscriptions feed to view. Local uses channels imported into the active profile.
   Switch to Local Feed: Show local subscriptions
   Switch to YouTube Feed: Show YouTube account feed
@@ -1370,8 +1371,10 @@ Theme Quick Switch:
 Discovery:
   Discover: Discover
   Live: Live
-  Discover Info: YouTube recommendations and varied topic searches. Refresh for a new mix; some videos may repeat.
+  Discover Info: YouTube recommendations and related videos based on your recent watch history. Watched video titles may be sent to YouTube as searches; some videos may repeat.
   Live Info: Live streams from across YouTube. Availability can change at any time.
   Refresh: Refresh
   Loading: Refreshing videos…
+  Public Home: Signed-out or family-friendly mode uses YouTube’s public home feed, which may not be personalized.
+  Home Unavailable: YouTube’s home feed could not be loaded. Showing results related to your recent watch history instead.
   Error: Could not load videos from YouTube. Check your connection and try Refresh again.

@@ -1805,15 +1805,20 @@ export function parseYouTubeAccountFeedItems(items) {
  * Live search is a last resort if the Live browse page is unavailable.
  * @param {'discover'|'live'} kind
  * @param {boolean} safetyMode
+ * @param {boolean} signedIn
  */
-export async function openDiscoveryFeed(kind, safetyMode = false) {
+export async function openDiscoveryFeed(kind, safetyMode = false, signedIn = false) {
   if (!['discover', 'live'].includes(kind)) throw new Error('Unknown discovery feed')
   const browseId = kind === 'live' ? 'FEtopics_live' : 'FEwhat_to_watch'
   const errors = []
   const clients = [
-    ...(!safetyMode ? [() => getYouTubeAccountInnertube()] : []),
-    () => createInnertube({ clientType: ClientType.TV, userAgent: TV_CLIENT_USER_AGENT, safetyMode }),
-    () => createInnertube({ clientType: ClientType.WEB, safetyMode }),
+    ...(signedIn && !safetyMode ? [() => getYouTubeAccountInnertube(), () => getYouTubeAccountWebInnertube()] : []),
+    ...(!signedIn || safetyMode
+      ? [
+          () => createInnertube({ clientType: ClientType.TV, userAgent: TV_CLIENT_USER_AGENT, safetyMode }),
+          () => createInnertube({ clientType: ClientType.WEB, safetyMode }),
+        ]
+      : []),
   ]
 
   const wrap = feed => ({

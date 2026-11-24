@@ -39,6 +39,22 @@ const emptyClient = { getSubscriptionsFeed: async () => ({ videos: [] }), action
   const web = await setup(emptyClient, { ...emptyClient, getSubscriptionsFeed: async () => ({ videos: [{ bad: true, type: 'Video', id: 'one', title: 'Fallback' }], has_continuation: true, getContinuation: async () => ({ videos: [{ type: 'video', videoId: 'two' }] }) }) })()
   assert.deepEqual(Array.from(web.videos, x => x.videoId), ['one', 'two'])
 
+  // Small first pages should not hide newer videos from other subscriptions.
+  let continuationCalls = 0
+  const manyPage = page => ({ videos: [{ type: 'video', videoId: `page${page}`, authorId: `channel${page}` }], has_continuation: page < 4, getContinuation: async () => { continuationCalls++; return manyPage(page + 1) } })
+  const pages = await setup({ ...emptyClient, getSubscriptionsFeed: async () => manyPage(0) }, emptyClient)()
+  assert.ok(pages.videos.some(item => item.videoId === 'page4'))
+  assert.ok(continuationCalls >= 4)
+  assert.equal(new Set(pages.videos.map(item => item.videoId)).size, pages.videos.length)
+  assert.equal(pages.partial, true, 'a small feed without a channel fallback is marked partial')
+
+  const mixed = await setup({ ...emptyClient, getSubscriptionsFeed: async () => ({ videos: [{ type: 'video', videoId: 'feed', authorId: 'UC1' }] }) }, emptyClient,
+    async () => ({ channels: [{ id: 'UC2', name: 'Subscribed' }], partial: false }),
+    async () => ({ videos: [{ type: 'video', videoId: 'upload', authorId: 'not-the-channel' }] }))()
+  assert.equal(mixed.source, 'mixed')
+  assert.ok(mixed.videos.some(item => item.videoId === 'feed'))
+  assert.equal(mixed.videos.find(item => item.videoId === 'upload').authorId, 'UC2', 'fallback uploads belong to the subscribed channel')
+
   const requested = []
   const channels = Array.from({ length: 45 }, (_, n) => ({ id: `UC${n}`, name: `Channel ${n}` }))
   const fallback = await setup(emptyClient, emptyClient, async () => ({ channels, partial: true }), async id => { requested.push(id); if (id === 'UC1') throw Error('offline'); return { videos: [{ type: 'video', videoId: id, published: Number(id.slice(2)) }] } })()

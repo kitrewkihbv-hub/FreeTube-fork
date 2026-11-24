@@ -1,32 +1,42 @@
 /**
- * Try the authenticated subscriptions page on both supported clients. Only if both
- * fail, build a limited feed from the account's subscribed channels and public uploads.
+ * Read several pages of the authenticated subscriptions feed. If YouTube only
+ * returns a small feed, supplement it with uploads from its subscribed channels.
  * No channel list is imported or modified by this operation.
  */
 export async function loadAccountActivity({ tv, getWebClient, getRawFeed, getRows, parseItems, getSubscriptions, getChannelVideos }) {
   const errors = []
+  const videos = []
+  const seen = new Set()
+  let feedIncomplete = false
+
+  function addVideos(items) {
+    for (const video of items) {
+      if (video?.type === 'video' && video.videoId && !seen.has(video.videoId)) {
+        seen.add(video.videoId)
+        videos.push(video)
+      }
+    }
+  }
+
   const readFeed = async (client, raw) => {
     let feed = raw ? await getRawFeed(client.actions, 'FEsubscriptions') : await client.getSubscriptionsFeed()
-    const videos = []
-    const seen = new Set()
-    // A small bounded number of pages avoids an unbounded launch-time request.
-    for (let page = 0; feed && page < 2; page++) {
-      for (const video of parseItems(getRows(feed))) {
-        if (video.videoId && !seen.has(video.videoId)) {
-          seen.add(video.videoId)
-          videos.push(video)
-        }
+    let incomplete = false
+    for (let page = 0; feed && page < 5; page++) {
+      addVideos(parseItems(getRows(feed)))
+      if (!feed.has_continuation) break
+      if (page === 4) {
+        incomplete = true
+        break
       }
-      if (!feed.has_continuation || page === 1) break
       try {
         feed = await feed.getContinuation()
       } catch (error) {
-        if (!videos.length) throw error
-        console.warn('Could not load the next subscriptions page', error)
+        incomplete = true
+        errors.push(error)
         break
       }
     }
-    return videos
+    return incomplete
   }
 
   for (const getClient of [async () => tv, getWebClient]) {
@@ -39,44 +49,51 @@ export async function loadAccountActivity({ tv, getWebClient, getRawFeed, getRow
     }
     for (const raw of [true, false]) {
       try {
-        const videos = await readFeed(client, raw)
-        if (videos.length) return { videos, source: 'youtube', partial: false }
+        feedIncomplete = (await readFeed(client, raw)) || feedIncomplete
+        if (videos.length >= 25) return { videos, source: 'youtube', partial: feedIncomplete }
       } catch (error) {
         errors.push(error)
       }
     }
   }
 
-  // Last resort: fetch uploads only for channels actually returned as subscribed.
-  // This is capped and reported as partial instead of pretending to be YouTube's feed.
+  // Only add public uploads from channels actually returned as subscribed.
+  // The account's list can be incomplete; keep that fact visible to the user.
   try {
     const subscriptions = await getSubscriptions()
     const channels = subscriptions.channels.slice(0, 40)
-    const videos = []
+    const uploads = []
     let failed = 0
     for (let i = 0; i < channels.length; i += 5) {
       const results = await Promise.all(channels.slice(i, i + 5).map(async channel => {
         try {
           const result = await getChannelVideos(channel.id)
           if (!result || !Array.isArray(result.videos)) throw new Error('No channel videos returned')
-          return result.videos.map(video => ({ ...video, author: video.author ?? channel.name, authorId: video.authorId ?? channel.id }))
+          return result.videos.map(video => ({ ...video, author: video.author ?? channel.name, authorId: channel.id }))
         } catch (error) {
           failed++
           console.warn('Could not load uploads for a subscribed channel', error)
           return []
         }
       }))
-      videos.push(...results.flat())
+      uploads.push(...results.flat())
     }
-    const seen = new Set()
-    const unique = videos.filter(video => video.type === 'video' && video.videoId && !seen.has(video.videoId) && seen.add(video.videoId))
-    unique.sort((a, b) => (b.published ?? 0) - (a.published ?? 0))
-    if (unique.length) {
-      return { videos: unique, source: 'channelUploads', partial: true, channelCount: channels.length, failedChannelCount: failed }
+    uploads.sort((a, b) => (b.published ?? 0) - (a.published ?? 0))
+    const hadFeed = videos.length > 0
+    addVideos(uploads)
+    if (videos.length) {
+      return {
+        videos,
+        source: hadFeed ? 'mixed' : 'channelUploads',
+        partial: true,
+        channelCount: channels.length,
+        failedChannelCount: failed,
+      }
     }
   } catch (error) {
     errors.push(error)
   }
 
+  if (videos.length) return { videos, source: 'youtube', partial: true }
   throw new Error('YouTube returned no readable subscription videos.', { cause: errors.at(-1) })
 }

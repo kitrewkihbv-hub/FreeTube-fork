@@ -21,6 +21,12 @@
           @click="refresh"
         />
       </div>
+      <p
+        v-if="!account.signedIn || safetyMode"
+        class="discoveryHint"
+      >
+        {{ $t('Discovery.Public Home') }}
+      </p>
       <FtLoader v-if="loading && videos.length === 0" />
       <template v-else>
         <p
@@ -29,6 +35,13 @@
           role="status"
         >
           {{ $t('Discovery.Loading') }}
+        </p>
+        <p
+          v-if="!error && homeUnavailable"
+          class="discoveryHint"
+          role="status"
+        >
+          {{ $t('Discovery.Home Unavailable') }}
         </p>
         <p
           v-if="error"
@@ -61,6 +74,7 @@ import store from '../../store/index'
 const videos = shallowRef([])
 const loading = ref(false)
 const error = ref(false)
+const homeUnavailable = ref(false)
 const account = computed(() => store.getters.getYouTubeAccount)
 const safetyMode = computed(() => store.getters.getShowFamilyFriendlyOnly)
 let generation = 0
@@ -70,10 +84,12 @@ function resetBrowser() {
   generation++
   videos.value = []
   error.value = false
+  homeUnavailable.value = false
   loading.value = false
   browser = createDiscoveryBrowser({
-    open: kind => openDiscoveryFeed(kind, safetyMode.value),
-    search: async topic => (await getLocalSearchResults(topic, { type: 'video' }, safetyMode.value)).results,
+    open: kind => openDiscoveryFeed(kind, safetyMode.value, account.value.signedIn),
+    getHistory: () => store.getters.getHistoryCacheSorted,
+    search: async query => (await getLocalSearchResults(query, { type: 'video' }, safetyMode.value)).results,
   })
   refresh()
 }
@@ -85,7 +101,10 @@ async function refresh() {
   error.value = false
   try {
     const result = await browser.refresh()
-    if (generation === requestGeneration) videos.value = result
+    if (generation === requestGeneration) {
+      videos.value = result
+      homeUnavailable.value = !browser.getStatus().homeAvailable
+    }
   } catch (err) {
     if (generation === requestGeneration) error.value = true
     console.error('Could not load YouTube discovery content', err)

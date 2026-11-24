@@ -14,32 +14,7 @@ export function hasLiveBadge(item) {
   return visit(item)
 }
 
-// Diverse searches supplement YouTube's home recommendations when they repeat or
-// contain only a few cards. These are ordinary public YouTube searches, not
-// personalised recommendations or subscriptions.
-const DISCOVERY_TOPICS = [
-  'nature documentary', 'space exploration', 'travel videos', 'creative cooking',
-  'technology inventions', 'animals wildlife', 'ocean exploration', 'history documentary',
-  'science experiments', 'architecture design', 'photography tutorials', 'art and painting',
-  'game highlights', 'puzzles and brain teasers', 'cars and engineering', 'woodworking projects',
-  'hiking adventures', 'funny animals', 'creative animation', 'amazing crafts',
-  'world geography', 'gardening tips', 'aerial drone views', 'trains and railways',
-  'robotics projects', 'behind the scenes filmmaking', 'volcanoes and geology', 'wildlife rescue',
-  'food around the world', 'building restoration', 'astronomy discoveries', 'camping adventures',
-  'board games', 'classic video games', 'museum tours', 'weather phenomena',
-]
-
-function shuffle(items, random) {
-  const result = items.slice()
-  for (let i = result.length - 1; i > 0; i--) {
-    const j = Math.floor(random() * (i + 1))
-    ;[result[i], result[j]] = [result[j], result[i]]
-  }
-  return result
-}
-
-// A stalled source should not leave Refresh disabled indefinitely. The timeout
-// only stops waiting; the request itself may still finish in the background.
+// Each timed-out source stops blocking refresh. The request itself may finish later.
 function withTimeout(promise, timeoutMs) {
   let timer
   return Promise.race([
@@ -50,22 +25,36 @@ function withTimeout(promise, timeoutMs) {
   ]).finally(() => clearTimeout(timer))
 }
 
-/** Stateful discovery browser with home recommendations and rotating topic searches. */
-export function createDiscoveryBrowser({ open, search, kind = 'discover', random = Math.random, timeoutMs = 12000 }) {
+/** Select recent watched titles, giving frequently watched channels more weight. */
+export function getInterestQueries(history, offset = 0) {
+  const entries = (Array.isArray(history) ? history : []).slice(0, 100)
+    .filter(item => typeof item?.title === 'string' && item.title.trim().length >= 4)
+  const counts = new Map()
+  for (const item of entries) {
+    const key = item.authorId || item.author || item.videoId
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  const ranked = entries.map((item, index) => ({ item, index, weight: counts.get(item.authorId || item.author || item.videoId) ?? 1 }))
+    .sort((a, b) => b.weight - a.weight || a.index - b.index)
+  const seen = new Set()
+  const queries = ranked.map(({ item }) => item.title.trim().slice(0, 120))
+    .filter(title => {
+      const key = title.toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    }).slice(0, 24)
+  if (!queries.length) return []
+  return Array.from({ length: Math.min(2, queries.length) }, (_, i) => queries[(offset + i) % queries.length])
+}
+
+/** Browse home recommendations and related searches based only on watched titles. */
+export function createDiscoveryBrowser({ open, search, getHistory = () => [], kind = 'discover', timeoutMs = 12000 }) {
   let currentFeed = null
   let pool = []
   let recentIds = []
-  let topics = []
-  let lastTopics = new Set()
-
-  function nextTopics() {
-    if (topics.length < 3) {
-      topics = shuffle(DISCOVERY_TOPICS.filter(topic => !lastTopics.has(topic)), random)
-    }
-    const selected = topics.splice(0, 3)
-    lastTopics = new Set(selected)
-    return selected
-  }
+  let queryOffset = 0
+  let homeAvailable = true
 
   async function readHome() {
     let feed
@@ -78,41 +67,47 @@ export function createDiscoveryBrowser({ open, search, kind = 'discover', random
     } else {
       feed = await open(kind)
     }
-    if (!feed) return { videos: [], feed: null }
-    return { videos: [...(feed.videos ?? [])], feed }
+    return { videos: feed?.videos ?? [], feed }
   }
 
   async function refresh() {
-    // Every refresh searches a different set of broad topics in parallel with
-    // YouTube's home feed, so even a fixed home shelf can produce new videos.
+    const history = getHistory() ?? []
+    const queries = getInterestQueries(history, queryOffset)
+    queryOffset += queries.length
     const sources = [withTimeout(readHome(), timeoutMs)]
     if (search) {
-      for (const topic of nextTopics()) {
-        sources.push(withTimeout(Promise.resolve().then(() => search(topic)), timeoutMs))
-      }
+      for (const query of queries) sources.push(withTimeout(Promise.resolve().then(() => search(query)), timeoutMs))
     }
     const settled = await Promise.allSettled(sources)
     const home = settled[0]
     if (home.status === 'fulfilled') currentFeed = home.value.feed
-    const collected = [
-      ...(home.status === 'fulfilled' ? home.value.videos : []),
-      ...settled.slice(1).flatMap(result => result.status === 'fulfilled' ? result.value ?? [] : []),
-    ].filter(video => video?.type === 'video' && video.videoId)
-    if (!collected.length) throw new Error('No readable videos were returned.')
+    homeAvailable = home.status === 'fulfilled' && home.value.videos.length > 0
+    const homeVideos = home.status === 'fulfilled' ? home.value.videos : []
+    const related = settled.slice(1).flatMap(result => result.status === 'fulfilled' ? result.value ?? [] : [])
+    const watched = new Set(history.map(item => item.videoId).filter(Boolean))
+    const valid = video => video?.type === 'video' && video.videoId && !watched.has(video.videoId)
+    const homeResults = homeVideos.filter(valid)
+    const relatedResults = related.filter(valid)
+    if (!homeResults.length && !relatedResults.length) throw new Error('No readable recommendations were returned.')
 
+    // Preserve YouTube's ranking and blend in related results without drowning it out.
+    const collected = []
+    for (let i = 0; i < Math.max(homeResults.length, relatedResults.length); i++) {
+      if (homeResults[i]) collected.push(homeResults[i])
+      if (relatedResults[i]) collected.push(relatedResults[i])
+    }
     const seen = new Set()
-    pool = [...shuffle(collected, random), ...pool].filter(video => {
-      if (seen.has(video.videoId)) return false
+    pool = [...collected, ...pool].filter(video => {
+      if (!valid(video) || seen.has(video.videoId)) return false
       seen.add(video.videoId)
       return true
     }).slice(0, 300)
 
     const previousIds = new Set(recentIds.flat())
-    const shuffled = shuffle(pool, random)
-    const next = [...shuffled.filter(video => !previousIds.has(video.videoId)), ...shuffled.filter(video => previousIds.has(video.videoId))].slice(0, 36)
+    const next = [...pool.filter(video => !previousIds.has(video.videoId)), ...pool.filter(video => previousIds.has(video.videoId))].slice(0, 36)
     recentIds = [next.map(video => video.videoId), ...recentIds].slice(0, 3)
     return next
   }
 
-  return { refresh }
+  return { refresh, getStatus: () => ({ homeAvailable }) }
 }
