@@ -549,31 +549,105 @@ export async function getYouTubeAccountSubscriptions() {
 
   /** @type {Map<string, { id: string, name: string, thumbnail: string }>} */
   const channels = new Map()
-  let channelsFeed = await innertube.getChannelsFeed()
+  const sourceErrors = []
+  let channelsFeedSucceeded = false
+  let fallbackSourceSucceeded = false
 
-  for (let page = 0; page < CHANNELS_FEED_PAGES_TO_FETCH; page++) {
-    for (const channel of channelsFeed.channels) {
-      const id = channel.id
-      const name = channel.author?.name
+  const addChannel = (id, name, thumbnail) => {
+    // Ignore navigation entries in the guide (for example FEsubscriptions); actual
+    // YouTube channel IDs begin with UC.
+    if (typeof id === 'string' && id.startsWith('UC') && name && name !== 'N/A' && !channels.has(id)) {
+      channels.set(id, { id, name, thumbnail: thumbnail ?? '' })
+    }
+  }
 
-      if (id && name && !channels.has(id)) {
-        channels.set(id, {
-          id,
-          name,
-          thumbnail: channel.author?.best_thumbnail?.url ?? ''
-        })
+  // This is the complete subscriptions list when YouTube returns it for this client.
+  // Some accounts/TV sessions do not expose FEchannels, so use the guide and activity
+  // feed below as a fallback instead of failing the whole import.
+  try {
+    let channelsFeed = await innertube.getChannelsFeed()
+    channelsFeedSucceeded = true
+
+    for (let page = 0; page < CHANNELS_FEED_PAGES_TO_FETCH; page++) {
+      for (const channel of channelsFeed.channels ?? []) {
+        addChannel(
+          channel.id,
+          channel.author?.name,
+          channel.author?.best_thumbnail?.url
+        )
       }
+
+      if (!channelsFeed.has_continuation) {
+        break
+      }
+
+      if (page === CHANNELS_FEED_PAGES_TO_FETCH - 1) {
+        sourceErrors.push(new Error(`The YouTube subscription list exceeded the ${CHANNELS_FEED_PAGES_TO_FETCH}-page import limit.`))
+        break
+      }
+
+      channelsFeed = await channelsFeed.getContinuation()
+    }
+  } catch (error) {
+    sourceErrors.push(error)
+    console.warn('failed to retrieve the YouTube channels list; trying other subscription sources', error)
+  }
+
+  if (channels.size === 0 || sourceErrors.length > 0) {
+    try {
+      const guide = await innertube.getGuide()
+      fallbackSourceSucceeded = true
+
+      for (const section of guide.contents ?? []) {
+        for (const entry of section.items ?? []) {
+          if (entry.type !== 'GuideEntry') {
+            continue
+          }
+
+          /** @type {import('youtubei.js').YTNodes.GuideEntry} */
+          const guideEntry = entry
+
+          addChannel(
+            guideEntry.endpoint?.payload?.browseId,
+            guideEntry.title?.text,
+            guideEntry.thumbnails?.at(-1)?.url
+          )
+        }
+      }
+    } catch (error) {
+      sourceErrors.push(error)
+      console.warn('failed to retrieve the YouTube subscriptions guide', error)
     }
 
-    if (!channelsFeed.has_continuation) {
-      break
-    }
+    try {
+      let feed = await innertube.getSubscriptionsFeed()
+      fallbackSourceSucceeded = true
 
-    if (page === CHANNELS_FEED_PAGES_TO_FETCH - 1) {
-      throw new Error(`The YouTube subscription list exceeded the ${CHANNELS_FEED_PAGES_TO_FETCH}-page import limit.`)
-    }
+      for (let page = 0; page <= 5; page++) {
+        for (const video of feed.videos ?? []) {
+          addChannel(
+            video.author?.id,
+            video.author?.name,
+            video.author?.best_thumbnail?.url
+          )
+        }
 
-    channelsFeed = await channelsFeed.getContinuation()
+        if (!feed.has_continuation || page === 5) {
+          break
+        }
+
+        feed = await feed.getContinuation()
+      }
+    } catch (error) {
+      sourceErrors.push(error)
+      console.warn('failed to retrieve the YouTube subscriptions activity feed', error)
+    }
+  }
+
+  if (!channelsFeedSucceeded && !fallbackSourceSucceeded) {
+    throw new Error('Unable to retrieve YouTube subscriptions. Check the account connection and try again.', {
+      cause: sourceErrors.at(-1)
+    })
   }
 
   return Array.from(channels.values()).sort((a, b) => a.name.localeCompare(b.name))
@@ -633,7 +707,39 @@ export async function getYouTubeAccountHistory() {
     throw new Error('You must be signed in to your YouTube account.')
   }
 
-  let historyFeed = await innertube.getHistory()
+  let historyFeed
+  let historyFeedError
+
+  try {
+    historyFeed = await innertube.getHistory()
+  } catch (error) {
+    historyFeedError = error
+    console.warn('failed to retrieve YouTube history directly; trying the Library history shelf', error)
+  }
+
+  if (!historyFeed || (historyFeed.videos.length === 0 && !historyFeed.has_continuation)) {
+    try {
+      const library = await innertube.getLibrary()
+      const historyShelf = library.history
+
+      if (historyShelf?.getAll) {
+        const libraryHistoryFeed = await historyShelf.getAll()
+
+        if (libraryHistoryFeed.videos.length > 0 || libraryHistoryFeed.has_continuation || !historyFeed) {
+          historyFeed = libraryHistoryFeed
+        }
+      }
+    } catch (error) {
+      console.warn('failed to retrieve YouTube history from the Library shelf', error)
+    }
+  }
+
+  if (!historyFeed) {
+    throw new Error('Unable to retrieve YouTube watch history. Check the account connection and try again.', {
+      cause: historyFeedError
+    })
+  }
+
   const historyByVideoId = new Map()
   const fallbackTime = Date.now()
 
@@ -671,7 +777,17 @@ export async function getYouTubeAccountHistory() {
       break
     }
 
-    historyFeed = await historyFeed.getContinuation()
+    try {
+      historyFeed = await historyFeed.getContinuation()
+    } catch (error) {
+      console.warn('YouTube history continuation failed; keeping the pages already imported', error)
+
+      if (historyByVideoId.size === 0) {
+        throw error
+      }
+
+      break
+    }
   }
 
   return Array.from(historyByVideoId.values())
