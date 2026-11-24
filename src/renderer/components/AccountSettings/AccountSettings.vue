@@ -54,25 +54,37 @@
         <FtButton
           :label="busy ? $t('Settings.Account Settings.Syncing Account Data') : $t('Settings.Account Settings.Sync Account Data')"
           :icon="busy ? ['fas', 'spinner'] : ['fas', 'rotate-right']"
-          :disabled="busy"
+          :disabled="busy || syncInProgress"
           @click="syncAccountData"
         />
         <FtButton
           :label="$t('Settings.Account Settings.Import Subscriptions')"
           :icon="['fas', 'download']"
-          :disabled="busy"
+          :disabled="busy || syncInProgress"
           @click="importSubscriptions"
+        />
+        <FtButton
+          :label="$t('Settings.Account Settings.Import History')"
+          :icon="['fas', 'history']"
+          :disabled="busy || syncInProgress"
+          @click="importHistory"
+        />
+        <FtButton
+          :label="$t('Settings.Account Settings.Import Playlists')"
+          :icon="['fas', 'list']"
+          :disabled="busy || syncInProgress"
+          @click="importPlaylists"
         />
         <FtButton
           :label="$t('Settings.Account Settings.Export Subscriptions')"
           :icon="['fas', 'upload']"
-          :disabled="busy"
+          :disabled="busy || syncInProgress"
           @click="exportSubscriptions"
         />
         <FtButton
           :label="$t('Settings.Account Settings.Refresh Account Details')"
           :icon="['fas', 'rotate-right']"
-          :disabled="busy"
+          :disabled="busy || syncInProgress"
           @click="refreshAccountInfo"
         />
         <FtButton
@@ -80,7 +92,7 @@
           :icon="['fas', 'right-from-bracket']"
           text-color="var(--destructive-text-color)"
           background-color="var(--destructive-color)"
-          :disabled="busy"
+          :disabled="busy || syncInProgress"
           @click="confirmSignOut = true"
         />
       </FtFlexBox>
@@ -244,6 +256,7 @@ const props = defineProps({
 const { t } = useI18n()
 
 const confirmSignOut = ref(false)
+const syncInProgress = ref(false)
 
 /** @type {import('vue').ComputedRef<import('../../store/modules/youtube-account').YouTubeAccountState>} */
 const account = computed(() => store.getters.getYouTubeAccount)
@@ -326,6 +339,16 @@ async function startSignIn() {
 }
 
 async function syncAccountData() {
+  if (syncInProgress.value) return
+  syncInProgress.value = true
+  try {
+    await performAccountSync()
+  } finally {
+    syncInProgress.value = false
+  }
+}
+
+async function performAccountSync() {
   let subscriptionResult
   let historyResult
   let playlistResult
@@ -334,6 +357,7 @@ async function syncAccountData() {
 
   try {
     subscriptionResult = await store.dispatch('syncSubscriptionsFromYouTubeAccount')
+    if (subscriptionResult.partial) syncPartial = true
   } catch (error) {
     syncFailed = true
     console.error('failed to sync YouTube subscriptions into FreeTube', error)
@@ -421,12 +445,41 @@ function cancelSignIn() {
 
 async function importSubscriptions() {
   try {
-    const { channelCount, addedCount } = await store.dispatch('syncSubscriptionsFromYouTubeAccount')
+    const { channelCount, addedCount, partial } = await store.dispatch('syncSubscriptionsFromYouTubeAccount')
 
-    showToast(t('Settings.Account Settings.Subscriptions Imported', { count: addedCount, total: channelCount }))
+    const message = partial
+      ? t('Settings.Account Settings.Subscriptions Imported Partial', { count: addedCount, total: channelCount })
+      : t('Settings.Account Settings.Subscriptions Imported', { count: addedCount, total: channelCount })
+    showToast(message)
   } catch (error) {
     showToast(t('Settings.Account Settings.Subscriptions Import Error'))
     console.error(error)
+  }
+}
+
+async function importHistory() {
+  try {
+    const result = await store.dispatch('syncYouTubeAccountHistory')
+    showToast(t('Settings.Account Settings.History Imported', {
+      count: result.fetchedCount,
+      changed: result.addedCount + result.updatedCount
+    }))
+  } catch (error) {
+    console.error('failed to import history', error)
+    showToast(t('Settings.Account Settings.Import Error'))
+  }
+}
+
+async function importPlaylists() {
+  try {
+    const result = await store.dispatch('syncYouTubeAccountPlaylists')
+    showToast(t('Settings.Account Settings.Playlists Imported', {
+      count: result.playlistCount,
+      videos: result.videoCount
+    }))
+  } catch (error) {
+    console.error('failed to import playlists', error)
+    showToast(t('Settings.Account Settings.Import Error'))
   }
 }
 

@@ -1117,7 +1117,7 @@ function runApp() {
           tray = new Tray(icon)
 
           tray.setIgnoreDoubleClickEvents(true)
-          tray.setToolTip('FreeTube')
+          tray.setToolTip('MacTube')
 
           trayWindows = [window]
           createTrayContextMenu()

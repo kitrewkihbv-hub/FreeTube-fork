@@ -294,7 +294,7 @@ const actions = {
    * @param {object} context the Vuex action context
    * @param {object} payload
    * @param {string[]} payload.profileIds the profiles to add the channels to
-   * @returns {Promise<{ channelCount: number, addedCount: number }>}
+   * @returns {Promise<{ channelCount: number, addedCount: number, partial: boolean }>}
    */
   async importYouTubeAccountSubscriptions(context, { profileIds }) {
     const { commit, dispatch, rootState } = context
@@ -302,7 +302,7 @@ const actions = {
     commit('setYouTubeAccountBusy', true)
 
     try {
-      const channels = await getYouTubeAccountSubscriptions()
+      const { channels, partial } = await getYouTubeAccountSubscriptions()
 
       let addedCount = 0
 
@@ -324,7 +324,7 @@ const actions = {
         addedCount = Math.max(addedCount, newChannels.length)
       }
 
-      return { channelCount: channels.length, addedCount }
+      return { channelCount: channels.length, addedCount, partial }
     } finally {
       commit('setYouTubeAccountBusy', false)
     }
@@ -368,7 +368,7 @@ const actions = {
 
     try {
       const existingChannels = new Set(
-        (await getYouTubeAccountSubscriptions()).map(channel => channel.id)
+        (await getYouTubeAccountSubscriptions()).channels.map(channel => channel.id)
       )
 
       const newChannels = profile.subscriptions.filter(channel => !existingChannels.has(channel.id))

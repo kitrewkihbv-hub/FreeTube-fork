@@ -72,15 +72,44 @@ jobs:
         rm -f assets/*.7z
         ls -lh assets
 
+    - name: Install ClamAV and update signatures
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clamav clamav-freshclam unzip
+        sudo systemctl stop clamav-freshclam || true
+        sudo freshclam
+
+    - name: Scan both macOS app bundles
+      shell: bash
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+        zips=(assets/*.zip)
+        test "${#zips[@]}" -eq 2
+        for zip in "${zips[@]}"; do
+          dir="scan/$(basename "$zip" .zip)"
+          mkdir -p "$dir"
+          unzip -q "$zip" -d "$dir"
+          test -d "$dir/MacTube.app"
+          archive="$dir/MacTube.app/Contents/Resources/app.asar"
+          test -f "$archive"
+          npx --yes @electron/asar@3.4.1 extract "$archive" "$dir/app-contents"
+        done
+        clamscan --recursive --infected --max-filesize=500M --max-scansize=1G scan
+
     - name: Create release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.target.outputs.tag }}
-        name: FreeTube with account sign-in (${{ steps.target.outputs.tag }})
+        name: MacTube (${{ steps.target.outputs.tag }})
         body: |
           Build of the `arena/64591193-freetube-with-account` branch, from Build run ${{ steps.target.outputs.run_id }}.
 
           Changes in this build:
+          - MacTube is a FreeTube-based fork with refreshed navigation and a music hub.
+            Music uses the existing video player and search, not the YouTube Music service.
+          - Choose the YouTube subscription feed or the local feed; imports can be retried
+            separately in Account settings and partial subscription imports are reported.
           - Sign in with Google/YouTube using the SmartTube-compatible QR flow or the manual code.
             Session tokens are encrypted with the OS keychain when Electron safeStorage supports it.
           - Account status and Google sign-in are visible in the top-right navigation.
@@ -92,7 +121,8 @@ jobs:
             setting also has a fine-control slider in Settings → Player.
           - The video title is no longer drawn over the video when it is zoomed into fullscreen.
 
-          Install on macOS: open the `.dmg` and drag FreeTube to Applications.
+          Install on macOS: open the `.dmg` and drag MacTube to Applications.
+          MacTube keeps the existing FreeTube data directory to preserve your local library.
           This build is ad-hoc signed and has not been notarized by Apple. Gatekeeper may warn
           that it cannot verify the developer or check the app for malicious software. That
           warning is not a malware finding, but it is also not proof that the app is safe.

@@ -95,7 +95,7 @@
         </div>
       </FtFlexBox>
       <SubscriptionsVideos
-        v-if="currentTab === 'videos'"
+        v-if="currentTab === 'videos' && !showYouTubeAccountFeed"
         id="subscriptionsPanel"
         role="tabpanel"
       />
@@ -134,7 +134,14 @@
         <FtLoader v-if="accountFeedLoading" />
         <template v-else>
           <p
-            v-if="accountFeed.length === 0"
+            v-if="accountFeedError"
+            class="accountFeedInfo"
+            role="alert"
+          >
+            {{ $t('Subscriptions.YouTube Account Feed Error') }}
+          </p>
+          <p
+            v-else-if="accountFeed.length === 0"
             class="accountFeedInfo"
           >
             {{ $t('Subscriptions.YouTube Account Feed Empty') }}
@@ -199,8 +206,9 @@ const showYouTubeAccountFeed = computed(() => {
   return isSignedInToYouTubeAccount.value && useYouTubeAccountFeed.value && currentTab.value === 'videos'
 })
 
+const accountFeedError = ref(false)
 const accountFeedLoading = computed(() => {
-  return accountFeedBusy.value || accountFeedCache.value === null
+  return accountFeedBusy.value || (accountFeedCache.value === null && !accountFeedError.value)
 })
 
 /** @type {import('vue').ComputedRef<object[]>} */
@@ -213,13 +221,17 @@ function loadAccountFeed() {
     return
   }
 
+  accountFeedError.value = false
   store.dispatch('grabYouTubeAccountFeed').catch((error) => {
+    accountFeedError.value = true
     console.error('failed to load the YouTube account feed', error)
   })
 }
 
 function refreshAccountFeed() {
+  accountFeedError.value = false
   store.dispatch('grabYouTubeAccountFeed', { refresh: true }).catch((error) => {
+    accountFeedError.value = true
     console.error('failed to refresh the YouTube account feed', error)
   })
 }

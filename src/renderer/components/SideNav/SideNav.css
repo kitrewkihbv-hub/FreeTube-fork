@@ -290,3 +290,13 @@
 .accountNavIcon {
   color: var(--primary-color);
 }
+
+.navOption.router-link-active {
+  color: var(--primary-color);
+  font-weight: 700;
+}
+
+.navOption:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: -2px;
+}

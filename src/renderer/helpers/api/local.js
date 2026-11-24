@@ -616,7 +616,7 @@ export async function getYouTubeAccountInfo() {
 /**
  * Retrieves the channels that the signed in account is subscribed to on YouTube.
  *
- * @returns {Promise<{ id: string, name: string, thumbnail: string }[]>}
+ * @returns {Promise<{ channels: { id: string, name: string, thumbnail: string }[], partial: boolean }>}
  */
 export async function getYouTubeAccountSubscriptions() {
   const innertube = await getYouTubeAccountInnertube()
@@ -629,6 +629,7 @@ export async function getYouTubeAccountSubscriptions() {
   const channels = new Map()
   const sourceErrors = []
   let channelsFeedSucceeded = false
+  let channelsFeedComplete = false
   let fallbackSourceSucceeded = false
 
   const addChannel = (id, name, thumbnail) => {
@@ -656,6 +657,7 @@ export async function getYouTubeAccountSubscriptions() {
       }
 
       if (!channelsFeed.has_continuation) {
+        channelsFeedComplete = true
         break
       }
 
@@ -671,7 +673,9 @@ export async function getYouTubeAccountSubscriptions() {
     console.warn('failed to retrieve the YouTube channels list; trying other subscription sources', error)
   }
 
-  if (channels.size === 0 || sourceErrors.length > 0) {
+  const channelsFeedWasEmpty = channels.size === 0
+
+  if (channelsFeedWasEmpty || sourceErrors.length > 0) {
     try {
       const guide = await innertube.getGuide()
       fallbackSourceSucceeded = true
@@ -728,7 +732,11 @@ export async function getYouTubeAccountSubscriptions() {
     })
   }
 
-  return Array.from(channels.values()).sort((a, b) => a.name.localeCompare(b.name))
+  return {
+    channels: Array.from(channels.values()).sort((a, b) => a.name.localeCompare(b.name)),
+    // The guide and recent activity feed cannot establish the full subscriptions list.
+    partial: !channelsFeedComplete || channelsFeedWasEmpty
+  }
 }
 
 /**

@@ -76,9 +76,7 @@
         <div
           class="logoIcon"
         />
-        <div
-          class="logoText"
-        />
+        <span class="logoText">{{ $t('MacTube') }}</span>
       </RouterLink>
     </div>
     <div class="middle">

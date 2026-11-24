@@ -194,14 +194,14 @@ jobs:
       if: startsWith(matrix.os, 'ubuntu') && startsWith(matrix.runtime, 'linux-x64')
       with:
         name: freetube-${{ steps.versionNumber.outputs.version }}-amd64.AppImage
-        path: build/FreeTube-${{ steps.versionNumber.outputs.version }}.AppImage
+        path: build/MacTube-${{ steps.versionNumber.outputs.version }}.AppImage
 
     - name: Upload AppImage ARM64 Artifact
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 #v7.0.2
       if: startsWith(matrix.os, 'ubuntu') && startsWith(matrix.runtime, 'linux-arm64')
       with:
         name: freetube-${{ steps.versionNumber.outputs.version }}-arm64.AppImage
-        path: build/FreeTube-${{ steps.versionNumber.outputs.version }}-arm64.AppImage
+        path: build/MacTube-${{ steps.versionNumber.outputs.version }}-arm64.AppImage
 
     - name: Upload .rpm x64 Artifact
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 #v7.0.2

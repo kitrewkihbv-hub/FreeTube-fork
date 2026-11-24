@@ -204,6 +204,7 @@ async function syncYouTubeAccountData({ onSignIn = false, onStartup = false } = 
 
   try {
     subscriptionResult = await store.dispatch('syncSubscriptionsFromYouTubeAccount')
+    if (subscriptionResult.partial) accountSyncPartial = true
   } catch (error) {
     coreSyncFailed = true
     console.error('failed to sync YouTube subscriptions into FreeTube', error)

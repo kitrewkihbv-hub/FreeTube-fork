@@ -137,6 +137,7 @@ Subscriptions:
   All Subscription Tabs Hidden: 'All subscription tabs are hidden. To see content here, please unhide some tabs in the "{subsection}" section in "{settingsSection}".'
   YouTube Account Feed Info: This is the subscription feed from your YouTube account.
     Change this in the Account section of the settings.
+  YouTube Account Feed Error: Could not load your YouTube feed. Try refreshing or switch to the local feed in Account settings.
   YouTube Account Feed Empty: There are no recent videos from the channels you are
     subscribed to on YouTube.
   Refresh: Refresh
@@ -296,7 +297,7 @@ Settings:
     Sync Account Data: Sync YouTube Data
     Syncing Account Data: Syncing YouTube Data…
     Sync Complete: 'YouTube sync finished: {channels} new channels, {historyVideos} recent YouTube history videos found ({videos} new or updated locally), and {playlists} playlists synced ({playlistVideos} new playlist videos added). History and playlists are imported locally only; FreeTube does not upload them to YouTube.'
-    Sync Partial: 'Partial YouTube sync: {historyVideos} history videos found; {playlists} playlists imported ({failedPlaylists} read failures); {playlistVideos} new playlist videos added. Some data was empty or incomplete. Tap Sync YouTube Data to retry.'
+    Sync Partial: 'Partial YouTube sync (subscriptions may be incomplete): {historyVideos} history videos found; {playlists} playlists imported ({failedPlaylists} read failures); {playlistVideos} new playlist videos added. Some data was empty or incomplete. Tap Sync YouTube Data to retry.'
     Sign In Title: Sign in to your Google account
     Sign In Instructions: Scan the QR code with your phone to sign in without typing
       anything, or enter the code below on any device to authorize FreeTube to access
@@ -318,9 +319,15 @@ Settings:
     Sign Out Confirmation: Are you sure you want to sign out of your Google account?
     Signed Out: You have been signed out of your Google account
     Refresh Account Details: Refresh Account Details
+    Import History: Import Watch History
+    Import Playlists: Import Playlists and Likes
+    History Imported: 'Found {count} recent history videos; {changed} added or updated locally.'
+    Playlists Imported: 'Imported {count} playlists; {videos} videos added locally. Some playlists may be incomplete.'
+    Import Error: Import failed. Check your connection and try again.
     Import Subscriptions: Import Subscriptions
     Subscriptions Imported: 'Imported {count} of {total} YouTube subscriptions into your
       profile'
+    Subscriptions Imported Partial: 'Added {count} channels from {total} found. YouTube did not provide a complete subscription list, so some channels may be missing.'
     Subscriptions Import Error: Unable to import your YouTube subscriptions
     Export Subscriptions: Subscribe on YouTube to Your Profile's Channels
     Subscriptions Exported: 'Subscribed to {count} channel(s) on YouTube'
@@ -1340,3 +1347,24 @@ KeyboardShortcutPrompt:
   End: Seek to the end of the video
   Skip to Next Video: Skip to the next video in a playlist or next recommended video
   Skip to Previous Video: Skip to the previous video in a playlist
+
+Music:
+  Music: Music
+  Eyebrow: YOUR LISTENING SPACE
+  Title: Music, your way.
+  Description: Find music on YouTube and play it in MacTube. Your saved videos and playlists stay in your local library.
+  Search: Search music
+  Search Placeholder: Search artists, songs, albums…
+  Library: Your library
+  Liked Videos: Favorites & liked videos
+  Liked Description: Open your favorites, including liked videos imported from YouTube.
+  Playlists: Your playlists
+  Playlists Description: Listen to a playlist or make a new one.
+  Discover: Find something to play
+  Discover Description: Explore music using YouTube video search.
+  Popular Music: Popular music
+  Live Music: Live music
+  New Music: New music
+  Note: Music uses the regular video player and search; this is not a separate YouTube Music service.
+
+MacTube: MacTube

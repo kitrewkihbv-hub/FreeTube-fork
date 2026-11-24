@@ -10,9 +10,14 @@
 
 .accountDisclaimer {
   color: var(--secondary-text-color);
+  line-height: 1.6;
+  padding-block: 12px;
 }
 
 .accountDetails {
+  padding: 20px;
+  border-radius: 16px;
+  background: var(--secondary-card-bg-color);
   display: flex;
   align-items: center;
   gap: 16px;
