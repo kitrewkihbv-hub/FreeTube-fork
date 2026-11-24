@@ -13,6 +13,7 @@ async function run(innertube) {
   const context = vm.createContext({
     getYouTubeAccountInnertube: async () => innertube,
     CHANNELS_FEED_PAGES_TO_FETCH: 100,
+    getYouTubeAccountSubscriptionTabs: () => [],
     console: { warn() {} },
     Map,
     Error,

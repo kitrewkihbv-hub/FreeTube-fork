@@ -116,23 +116,6 @@
           {{ $t("Playlists") }}
         </p>
       </router-link>
-      <router-link
-        class="navOption mobileShow"
-        role="button"
-        to="/music"
-        :title="$t('Music.Music')"
-      >
-        <div class="thumbnailContainer">
-          <FontAwesomeIcon
-            :icon="['fas', 'music']"
-            class="navIcon"
-            :class="applyNavIconExpand"
-          />
-        </div>
-        <p class="navLabel">
-          {{ $t('Music.Music') }}
-        </p>
-      </router-link>
       <SideNavMoreOptions />
       <router-link
         class="navOption mobileShow"

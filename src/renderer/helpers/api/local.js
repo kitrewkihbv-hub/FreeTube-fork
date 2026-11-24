@@ -19,6 +19,7 @@ import {
   getYouTubeAccountRawItem,
   getYouTubeAccountRawText,
 } from './youtubeAccountRawFeed'
+import { getYouTubeAccountSubscriptionTabs } from './youtubeAccountSubscriptions'
 
 const TRACKING_PARAM_NAMES = [
   'utm_source',
@@ -676,6 +677,20 @@ export async function getYouTubeAccountSubscriptions() {
   const channelsFeedWasEmpty = channels.size === 0
 
   if (channelsFeedWasEmpty || sourceErrors.length > 0) {
+    try {
+      // SmartTube reads subscribed channels from FEsubscriptions TV navigation tabs.
+      // Treat this as a partial fallback: YouTube may omit or change those tabs.
+      const response = await innertube.actions.execute('/browse', { browseId: 'FEsubscriptions' })
+      const tvChannels = getYouTubeAccountSubscriptionTabs(response)
+      for (const channel of tvChannels) {
+        addChannel(channel.id, channel.name, channel.thumbnail)
+      }
+      fallbackSourceSucceeded ||= tvChannels.length > 0
+    } catch (error) {
+      sourceErrors.push(error)
+      console.warn('failed to retrieve YouTube TV subscription tabs', error)
+    }
+
     try {
       const guide = await innertube.getGuide()
       fallbackSourceSucceeded = true

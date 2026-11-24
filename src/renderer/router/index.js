@@ -6,7 +6,6 @@ import Trending from '../views/Trending/Trending.vue'
 import Popular from '../views/Popular/Popular.vue'
 import UserPlaylists from '../views/UserPlaylists/UserPlaylists.vue'
 import History from '../views/History/History.vue'
-import Music from '../views/Music/Music.vue'
 import Settings from '../views/Settings/Settings.vue'
 import AccountSignIn from '../views/AccountSignIn.vue'
 import About from '../views/About/About.vue'
@@ -69,12 +68,6 @@ const router = createRouter({
         title: 'Your Playlists'
       },
       component: UserPlaylists
-    },
-    {
-      path: '/music',
-      name: 'music',
-      meta: { title: 'Music' },
-      component: Music
     },
     {
       path: '/history',

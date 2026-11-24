@@ -10,6 +10,10 @@ export default {
   directories: {
     output: './build/',
   },
+  extraResources: [
+    { from: '_icons/mactubeLight.png', to: 'mactube-icons/mactubeLight.png' },
+    { from: '_icons/mactubeDark.png', to: 'mactube-icons/mactubeDark.png' },
+  ],
   protocols: [
     {
       name: 'FreeTube',
@@ -105,7 +109,7 @@ export default {
   */
   mac: {
     category: 'public.app-category.utilities',
-    icon: '_icons/iconMac.icns',
+    icon: '_icons/mactube.icns',
     target: ['dmg', 'zip', '7z'],
     type: 'distribution',
     extendInfo: {

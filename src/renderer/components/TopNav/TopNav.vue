@@ -73,9 +73,12 @@
         :title="headerLogoTitle"
         :to="landingPage"
       >
-        <div
+        <span
           class="logoIcon"
-        />
+          aria-hidden="true"
+        >
+          <FontAwesomeIcon :icon="['fas', 'play']" />
+        </span>
         <span class="logoText">{{ $t('MacTube') }}</span>
       </RouterLink>
     </div>
@@ -116,6 +119,14 @@
       </div>
     </div>
     <div class="side profiles">
+      <button
+        class="navButton themeButton"
+        :title="themeSwitchLabel"
+        :aria-label="themeSwitchLabel"
+        @click="toggleTheme"
+      >
+        <FontAwesomeIcon :icon="['fas', 'palette']" />
+      </button>
       <RouterLink
         v-if="USING_ELECTRON"
         class="youtubeAccountLink"
@@ -154,7 +165,7 @@ import FtIconButton from '../FtIconButton/FtIconButton.vue'
 
 import store from '../../store/index'
 
-import { KeyboardShortcuts, MOBILE_WIDTH_THRESHOLD, SEARCH_RESULTS_DISPLAY_LIMIT } from '../../../constants'
+import { DARK_BASE_THEMES, KeyboardShortcuts, MOBILE_WIDTH_THRESHOLD, SEARCH_RESULTS_DISPLAY_LIMIT } from '../../../constants'
 import { debounce, localizeAndAddKeyboardShortcutToActionTitle, openInternalPath } from '../../helpers/utils'
 import { translateWindowTitle } from '../../helpers/strings'
 import { clearLocalSearchSuggestionsSession, getLocalClip, getLocalSearchSuggestions } from '../../helpers/api/local'
@@ -199,6 +210,20 @@ const youTubeAccountNavTitle = computed(() => isSignedInToYouTubeAccount.value
 const expandCollapseSideBarLabel = computed(() => {
   return store.getters.getIsSideNavOpen ? t('Compact side navigation') : t('Expand side navigation')
 })
+
+const baseTheme = computed(() => store.getters.getBaseTheme)
+const systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)')
+const systemIsDark = ref(systemThemeQuery.matches)
+function handleSystemThemeChange(event) { systemIsDark.value = event.matches }
+onMounted(() => systemThemeQuery.addEventListener('change', handleSystemThemeChange))
+onBeforeUnmount(() => systemThemeQuery.removeEventListener('change', handleSystemThemeChange))
+const isDarkTheme = computed(() => baseTheme.value === 'system'
+  ? systemIsDark.value
+  : DARK_BASE_THEMES.includes(baseTheme.value))
+const themeSwitchLabel = computed(() => isDarkTheme.value ? t('Theme Quick Switch.Use Light') : t('Theme Quick Switch.Use Dark'))
+function toggleTheme() {
+  store.dispatch('updateBaseTheme', isDarkTheme.value ? 'light' : 'dark')
+}
 
 const landingPage = computed(() => '/' + store.getters.getLandingPage)
 

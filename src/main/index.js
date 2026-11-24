@@ -411,6 +411,7 @@ function runApp() {
 
   app.on('ready', async (_, __) => {
     if (process.platform === 'darwin') {
+      updateDockIcon()
       const dockMenu = Menu.buildFromTemplate([
         {
           label: 'New Window',
@@ -1314,6 +1315,7 @@ function runApp() {
   })
 
   nativeTheme.on('updated', () => {
+    updateDockIcon()
     const allWindows = BrowserWindow.getAllWindows()
 
     allWindows.forEach((window) => {
@@ -1763,12 +1765,21 @@ function runApp() {
     }
   })
 
+  function updateDockIcon() {
+    if (process.platform !== 'darwin' || !app.isReady()) return
+    const iconDir = process.env.NODE_ENV === 'development'
+      ? path.join(__dirname, '../../_icons')
+      : path.join(process.resourcesPath, 'mactube-icons')
+    app.dock.setIcon(path.join(iconDir, nativeTheme.shouldUseDarkColors ? 'mactubeDark.png' : 'mactubeLight.png'))
+  }
+
   function updateThemeSource(baseTheme) {
     nativeTheme.themeSource = LIGHT_BASE_THEMES.includes(baseTheme)
       ? 'light'
       : (DARK_BASE_THEMES.includes(baseTheme)
           ? 'dark'
           : 'system')
+    updateDockIcon()
   }
 
   // ************************************************* //

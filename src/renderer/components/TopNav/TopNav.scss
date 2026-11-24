@@ -143,8 +143,14 @@
     align-items: center;
     cursor: pointer;
     display: flex;
+    color: var(--primary-text-color);
+    text-decoration: none;
     padding-block: 0;
     padding-inline: 10px 25px;
+
+    @include top-nav-is-colored {
+      color: var(--text-with-main-color);
+    }
 
     &:hover {
       background-color: var(--side-nav-hover-color);
@@ -166,16 +172,15 @@
     }
 
     .logoIcon {
-      background-image: var(--logo-icon);
-      background-position: right top;
-      background-repeat: no-repeat;
-      background-size: 25px;
-      block-size: 25px;
-      inline-size: 25px;
-
-      @include top-nav-is-colored {
-        background-image: var(--logo-icon-bar-color);
-      }
+      display: grid;
+      place-items: center;
+      border-radius: 9px;
+      background: linear-gradient(135deg, #8057ed, #e75a97);
+      color: #fff;
+      font-size: 12px;
+      block-size: 29px;
+      inline-size: 29px;
+      line-height: 1;
     }
 
     .logoText {
@@ -284,6 +289,14 @@
   }
 
   .youtubeAccountLabel {
+    display: none;
+  }
+}
+
+.themeButton {
+  font-size: 17px;
+
+  @media only screen and (width <= 500px) {
     display: none;
   }
 }

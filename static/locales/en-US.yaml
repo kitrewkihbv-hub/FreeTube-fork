@@ -1348,23 +1348,8 @@ KeyboardShortcutPrompt:
   Skip to Next Video: Skip to the next video in a playlist or next recommended video
   Skip to Previous Video: Skip to the previous video in a playlist
 
-Music:
-  Music: Music
-  Eyebrow: YOUR LISTENING SPACE
-  Title: Music, your way.
-  Description: Find music on YouTube and play it in MacTube. Your saved videos and playlists stay in your local library.
-  Search: Search music
-  Search Placeholder: Search artists, songs, albums…
-  Library: Your library
-  Liked Videos: Favorites & liked videos
-  Liked Description: Open your favorites, including liked videos imported from YouTube.
-  Playlists: Your playlists
-  Playlists Description: Listen to a playlist or make a new one.
-  Discover: Find something to play
-  Discover Description: Explore music using YouTube video search.
-  Popular Music: Popular music
-  Live Music: Live music
-  New Music: New music
-  Note: Music uses the regular video player and search; this is not a separate YouTube Music service.
-
 MacTube: MacTube
+
+Theme Quick Switch:
+  Use Light: Switch to light theme
+  Use Dark: Switch to dark theme

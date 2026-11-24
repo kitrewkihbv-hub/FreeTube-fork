@@ -1,4 +1,4 @@
-import { safeStorage } from 'electron'
+import { app, safeStorage } from 'electron'
 import { existsSync } from 'fs'
 import path from 'path'
 import asyncFs from 'fs/promises'
@@ -73,6 +73,9 @@ let accountStateLoadPromise = null
 /** @type {AbortController|null} */
 let pendingSignInController = null
 
+// Serialize writes so a late account-info update cannot overwrite newer credentials.
+let accountStateWrite = Promise.resolve()
+
 /**
  * @param {string} userDataPath
  */
@@ -124,7 +127,7 @@ export function updateAccountInfo(accountInfo) {
     }
   }
 
-  saveAccountState()
+  saveAccountState().catch(error => console.error('youtube account: failed to save account details', error))
 
   return accountState
 }
@@ -133,7 +136,8 @@ export function updateAccountInfo(accountInfo) {
  * Loads the account state from the disk (and decrypts it if it was encrypted)
  */
 export function loadAccountState() {
-  accountStateLoadPromise = readAccountState()
+  // safeStorage is not usable until Electron is ready (notably on macOS).
+  accountStateLoadPromise = app.whenReady().then(() => readAccountState())
 
   return accountStateLoadPromise
 }
@@ -181,30 +185,35 @@ async function readAccountState() {
 /**
  * Persists the current account state, encrypting the tokens when possible
  */
-async function saveAccountState() {
+function saveAccountState() {
   if (!accountStateFilePath) {
-    return
+    return Promise.reject(new Error('The YouTube account storage path is not available.'))
   }
 
-  try {
-    const serializedState = JSON.stringify(accountState)
-
+  const filePath = accountStateFilePath
+  const serializedState = JSON.stringify(accountState)
+  const operation = accountStateWrite.catch(() => {}).then(async () => {
     let fileContents
-
     if (safeStorage.isEncryptionAvailable()) {
       const encrypted = safeStorage.encryptString(serializedState)
       fileContents = JSON.stringify({ encrypted: true, data: encrypted.toString('base64') })
     } else {
-      // Falling back to plain text is not ideal, so the user is warned in the UI
       console.warn('youtube account: the OS keychain is not available, the account tokens are stored unencrypted')
       fileContents = JSON.stringify({ encrypted: false, data: serializedState })
     }
 
-    await asyncFs.mkdir(path.dirname(accountStateFilePath), { recursive: true })
-    await asyncFs.writeFile(accountStateFilePath, fileContents, { encoding: 'utf8', mode: 0o600 })
-  } catch (error) {
-    console.error('youtube account: failed to save the account state', error)
-  }
+    await asyncFs.mkdir(path.dirname(filePath), { recursive: true })
+    const temporaryPath = `${filePath}.tmp`
+    try {
+      await asyncFs.writeFile(temporaryPath, fileContents, { encoding: 'utf8', mode: 0o600 })
+      await asyncFs.rename(temporaryPath, filePath)
+    } catch (error) {
+      await asyncFs.rm(temporaryPath, { force: true }).catch(() => {})
+      throw error
+    }
+  })
+  accountStateWrite = operation
+  return operation
 }
 
 /**
@@ -422,6 +431,7 @@ export async function startSignIn(onUpdate, onError) {
 
     waitForAuthorization(client, deviceAndUserCode.device_code, controller.signal, deviceAndUserCode.interval)
       .then(async (tokens) => {
+        if (controller.signal.aborted || pendingSignInController !== controller) return
         accountState = {
           isSignedIn: true,
           name: null,
@@ -432,14 +442,20 @@ export async function startSignIn(onUpdate, onError) {
           tokens
         }
 
-        await saveAccountState()
+        try {
+          await saveAccountState()
+        } catch (error) {
+          accountState = getSignedOutAccountState()
+          throw new Error('Could not save your sign-in on this device. Please check the app data folder permissions.', { cause: error })
+        }
 
+        if (controller.signal.aborted || pendingSignInController !== controller) return
         pendingSignInController = null
-
         onUpdate(accountState)
       })
       .catch((error) => {
-        if (error.message !== 'aborted') {
+        if (pendingSignInController === controller) pendingSignInController = null
+        if (error.message !== 'aborted' && !controller.signal.aborted) {
           console.error('youtube account: sign in failed', error)
           onError(error.message)
         }
@@ -476,7 +492,9 @@ export async function signOut() {
 
   accountState = getSignedOutAccountState()
 
-  if (accountStateFilePath && existsSync(accountStateFilePath)) {
+  // Wait for already queued saves before deleting so they cannot resurrect the account.
+  await accountStateWrite.catch(() => {})
+  if (accountStateFilePath) {
     await asyncFs.rm(accountStateFilePath, { force: true })
   }
 

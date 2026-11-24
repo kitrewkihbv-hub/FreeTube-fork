@@ -41,8 +41,6 @@ export function translateWindowTitle(title) {
       return i18n.global.t('Most Popular')
     case 'Your Playlists':
       return i18n.global.t('User Playlists.Your Playlists')
-    case 'Music':
-      return i18n.global.t('Music.Music')
     case 'History':
       return i18n.global.t('History.History')
     case 'Settings':
