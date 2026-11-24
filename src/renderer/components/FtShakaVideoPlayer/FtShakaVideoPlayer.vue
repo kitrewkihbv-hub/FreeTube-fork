@@ -14,6 +14,7 @@
       preload="auto"
       crossorigin="anonymous"
       playsinline
+      :style="{ transform: `scale(${videoZoom / 100})` }"
       :autoplay="autoplayVideos ? true : null"
       :poster="thumbnail"
       @play="handlePlay"
@@ -129,6 +130,7 @@
 <script setup>
 import { FontAwesomeIcon, FontAwesomeLayers } from '@fortawesome/vue-fontawesome'
 import shaka from 'shaka-player'
+import { VideoZoomButton } from './player-components/VideoZoomButton'
 import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, reactive, ref, shallowRef, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -317,6 +319,7 @@ let player = null
 let ui = null
 
 const events = new EventTarget()
+const videoZoom = ref(100)
 
 const container = useTemplateRef('container')
 const video = useTemplateRef('video')
@@ -831,11 +834,12 @@ const uiConfig = computed(() => {
 
     elementList = uiConfig.overflowMenuButtons
 
-    uiConfig.controlPanelElements.push('overflow_menu', 'fullscreen')
+    uiConfig.controlPanelElements.push('ft_video_zoom', 'overflow_menu', 'fullscreen')
   } else {
     uiConfig.controlPanelElements.push(
       'ft_screenshot',
       'ft_autoplay_toggle',
+      'ft_video_zoom',
       'overflow_menu',
       'picture_in_picture',
       'ft_theatre_mode',
@@ -856,6 +860,10 @@ const uiConfig = computed(() => {
     )
 
     elementList = uiConfig.controlPanelElements
+  }
+
+  if (useVrMode.value || props.format === 'audio') {
+    removeFromArrayIfExists(uiConfig.controlPanelElements, 'ft_video_zoom')
   }
 
   if (!enableScreenshot.value || props.format === 'audio') {
@@ -1782,6 +1790,15 @@ function registerTheatreModeButton() {
   shakaOverflowMenu.registerElement('ft_theatre_mode', new TheatreModeButtonFactory())
 }
 
+function registerVideoZoomButton() {
+  class VideoZoomButtonFactory {
+    create(rootElement, controls) {
+      return new VideoZoomButton(() => videoZoom.value, (value) => { videoZoom.value = value }, rootElement, controls)
+    }
+  }
+  shakaControls.registerElement('ft_video_zoom', new VideoZoomButtonFactory())
+}
+
 function registerVideoSizeButton() {
   /**
    * @implements {shaka.extern.IUIElement.Factory}
@@ -1958,6 +1975,7 @@ function cleanUpCustomPlayerControls() {
   shakaControls.registerElement('ft_theatre_mode', null)
   shakaOverflowMenu.registerElement('ft_theatre_mode', null)
 
+  shakaControls.registerElement('ft_video_zoom', null)
   shakaControls.registerElement('ft_video_size', null)
   shakaOverflowMenu.registerElement('ft_video_size', null)
 
@@ -2784,6 +2802,7 @@ onMounted(async () => {
 
   registerTheatreModeButton()
   registerVideoSizeButton()
+  registerVideoZoomButton()
   registerFullWindowButton()
   registerLegacyQualitySelection()
   registerStatsButton()

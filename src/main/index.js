@@ -961,16 +961,16 @@ function runApp() {
     // Syncing new window background to theme choice.
     const windowBackground = await baseHandlers.settings._findOne('baseTheme').then((setting) => {
       if (!setting) {
-        return nativeTheme.shouldUseDarkColors ? '#212121' : '#f1f1f1'
+        return nativeTheme.shouldUseDarkColors ? '#191321' : '#f3effa'
       }
 
       // Determine window color to be shown (shown most prominently during initial app load)
       // Uses the --bg-color for each corresponding theme
       switch (setting.value) {
         case 'dark':
-          return '#212121'
+          return '#191321'
         case 'light':
-          return '#f1f1f1'
+          return '#f3effa'
         case 'black':
           return '#000000'
         case 'dracula':
@@ -1009,12 +1009,12 @@ function runApp() {
           return '#eff1f5'
         case 'system':
         default:
-          return nativeTheme.shouldUseDarkColors ? '#212121' : '#f1f1f1'
+          return nativeTheme.shouldUseDarkColors ? '#191321' : '#f3effa'
       }
     }).catch((error) => {
       console.error(error)
       // Default to nativeTheme settings if nothing is found.
-      return nativeTheme.shouldUseDarkColors ? '#212121' : '#f1f1f1'
+      return nativeTheme.shouldUseDarkColors ? '#191321' : '#f3effa'
     })
 
     let savedBounds, savedMaximized, savedFullScreen

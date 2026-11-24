@@ -94,6 +94,17 @@
           {{ $t("Global.Posts") }}
         </div>
       </FtFlexBox>
+      <div
+        v-if="isSignedInToYouTubeAccount && currentTab === 'videos'"
+        class="feedChoice"
+      >
+        <span>{{ $t('Subscriptions.Feed Source') }}</span>
+        <FtButton
+          :label="showYouTubeAccountFeed ? $t('Subscriptions.Switch to Local Feed') : $t('Subscriptions.Switch to YouTube Feed')"
+          :icon="['fas', 'rotate']"
+          @click="useLocalFeed = !useLocalFeed"
+        />
+      </div>
       <SubscriptionsVideos
         v-if="currentTab === 'videos' && !showYouTubeAccountFeed"
         id="subscriptionsPanel"
@@ -202,8 +213,9 @@ const accountFeedCache = computed(() => {
  * The account feed replaces the "videos" tab when the user signed in and opted in to use it.
  * The other tabs (Shorts, live, posts) only exist in FreeTube's own subscriptions feed.
  */
+const useLocalFeed = ref(false)
 const showYouTubeAccountFeed = computed(() => {
-  return isSignedInToYouTubeAccount.value && useYouTubeAccountFeed.value && currentTab.value === 'videos'
+  return isSignedInToYouTubeAccount.value && (useYouTubeAccountFeed.value !== useLocalFeed.value) && currentTab.value === 'videos'
 })
 
 const accountFeedError = ref(false)

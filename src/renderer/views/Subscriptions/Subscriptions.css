@@ -60,3 +60,11 @@
   color: var(--tertiary-text-color);
   margin-block: 10px;
 }
+
+.feedChoice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-block: 12px;
+}

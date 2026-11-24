@@ -787,9 +787,27 @@ export async function getYouTubeAccountActivityFeed() {
     throw new Error('You must be signed in to your YouTube account.')
   }
 
-  const feed = await innertube.getSubscriptionsFeed()
+  let parsedError
+  try {
+    const feed = await innertube.getSubscriptionsFeed()
+    const videos = parseYouTubeAccountFeedItems(getYouTubeAccountFeedArray(feed, 'videos'))
+    if (videos.length > 0) return videos
+  } catch (error) {
+    parsedError = error
+    console.warn('Could not parse the YouTube subscriptions feed; trying raw browse data', error)
+  }
 
-  return parseYouTubeAccountFeedItems(feed.videos)
+  try {
+    const rawFeed = await getYouTubeAccountRawBrowseFeed(innertube.actions, 'FEsubscriptions')
+    const videos = parseYouTubeAccountFeedItems(getYouTubeAccountFeedArray(rawFeed, 'videos'))
+    if (videos.length > 0) return videos
+  } catch (error) {
+    parsedError ??= error
+    console.warn('Could not read the raw YouTube subscriptions feed', error)
+  }
+
+  // An empty or unrecognized response cannot be distinguished from an empty account.
+  throw new Error('YouTube returned no readable subscription videos.', { cause: parsedError })
 }
 
 /**
@@ -1779,7 +1797,16 @@ export function parseYouTubeAccountHistoryTime(watchedText) {
  * @returns {object[]}
  */
 export function parseYouTubeAccountFeedItems(items) {
-  return items.map(item => parseListItem(item)).filter(item => item?.type === 'video')
+  return items.map(item => {
+    if (getYouTubeAccountRawItem(item)) return getYouTubeAccountVideoFallback(item)
+    try {
+      const parsed = parseListItem(item)
+      if (parsed?.type === 'video' && parsed.videoId) return parsed
+    } catch (error) {
+      console.warn('Could not parse a subscription video; trying a fallback', error)
+    }
+    return getYouTubeAccountVideoFallback(item)
+  }).filter(item => item?.type === 'video' && item.videoId)
 }
 // #endregion YouTube account
 

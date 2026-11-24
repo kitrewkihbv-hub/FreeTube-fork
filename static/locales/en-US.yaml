@@ -135,9 +135,12 @@ Subscriptions:
   Load More Posts: Load More Posts
   Subscriptions Tabs: Subscriptions Tabs
   All Subscription Tabs Hidden: 'All subscription tabs are hidden. To see content here, please unhide some tabs in the "{subsection}" section in "{settingsSection}".'
+  Feed Source: Choose which subscriptions feed to view. Local uses channels imported into the active profile.
+  Switch to Local Feed: Show local subscriptions
+  Switch to YouTube Feed: Show YouTube account feed
   YouTube Account Feed Info: This is the subscription feed from your YouTube account.
     Change this in the Account section of the settings.
-  YouTube Account Feed Error: Could not load your YouTube feed. Try refreshing or switch to the local feed in Account settings.
+  YouTube Account Feed Error: YouTube returned no readable videos or the feed could not be loaded. Try refreshing or show local subscriptions and import channels in Account settings.
   YouTube Account Feed Empty: There are no recent videos from the channels you are
     subscribed to on YouTube.
   Refresh: Refresh
@@ -356,6 +359,7 @@ Settings:
       Label: Auto Load Next Page
       Tooltip: Load additional pages and comments automatically.
     Default Landing Page: Default Landing Page
+    Startup Tab: Startup Tab (opens when MacTube starts)
     Locale Preference: Locale Preference
     System Default: System Default
     Preferred API Backend:
@@ -1031,6 +1035,8 @@ Video:
       shuffling playlists: shuffling playlists
       looping playlists: looping playlists
   Player:
+    Video Zoom: "Zoom {zoom}%"
+    Video Zoom Hint: "Video zoom {zoom}%. Press to cycle zoom levels; zooming crops the picture."
     TranslatedCaptionTemplate: '{language} (translated from "{originalLanguage}")'
     Audio Tracks: Audio Tracks
     Autoplay is off: Autoplay is off

@@ -229,3 +229,11 @@
 }
 
 /* stylelint-enable liberty/use-logical-spec */
+
+:deep(.shaka-controls-button-panel .video-zoom-button) {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  min-inline-size: 82px;
+  white-space: nowrap;
+}

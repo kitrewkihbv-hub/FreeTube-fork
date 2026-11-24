@@ -61,7 +61,7 @@
         @change="updateBackendPreference"
       />
       <FtSelect
-        :placeholder="t('Settings.General Settings.Default Landing Page')"
+        :placeholder="t('Settings.General Settings.Startup Tab')"
         :value="landingPage"
         :select-names="defaultPageNames"
         :select-values="defaultPageValues"
@@ -327,7 +327,7 @@ const defaultPages = computed(() => {
     includedPageNames = includedPageNames.filter((pageName) => pageName !== 'popular')
   }
 
-  return router.getRoutes().filter((route) => includedPageNames.includes(route.name))
+  return router.getRoutes().filter((route) => includedPageNames.includes(route.name) || route.path.slice(1) === store.getters.getLandingPage)
 })
 
 const defaultPageNames = computed(() => defaultPages.value.map((route) => translateWindowTitle(route.meta.title)))
