@@ -248,7 +248,12 @@ async function syncYouTubeAccountData({ onSignIn = false, onStartup = false } = 
     const channelCount = subscriptionResult?.addedCount ?? 0
     const historyCount = (historyResult?.addedCount ?? 0) + (historyResult?.updatedCount ?? 0)
     if (coreSyncFailed || accountSyncPartial || feedSyncFailed) {
-      showToast(t('Settings.Account Settings.Sync Partial'))
+      showToast(t('Settings.Account Settings.Sync Partial', {
+        historyVideos: historyResult?.fetchedCount ?? 0,
+        playlists: playlistResult?.playlistCount ?? 0,
+        failedPlaylists: playlistResult?.failedPlaylistCount ?? 0,
+        playlistVideos: playlistResult?.videoCount ?? 0
+      }))
     } else {
       showToast(t('Settings.Account Settings.Sync Complete', {
         channels: channelCount,

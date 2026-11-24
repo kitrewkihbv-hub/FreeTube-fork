@@ -296,7 +296,7 @@ Settings:
     Sync Account Data: Sync YouTube Data
     Syncing Account Data: Syncing YouTube Data…
     Sync Complete: 'YouTube sync finished: {channels} new channels, {historyVideos} recent YouTube history videos found ({videos} new or updated locally), and {playlists} playlists synced ({playlistVideos} new playlist videos added). History and playlists are imported locally only; FreeTube does not upload them to YouTube.'
-    Sync Partial: Signed in, but YouTube returned empty or incomplete history or playlist data. Check the selected Google account and YouTube Watch History, then tap Sync YouTube Data to retry.
+    Sync Partial: 'Partial YouTube sync: {historyVideos} history videos found; {playlists} playlists imported ({failedPlaylists} read failures); {playlistVideos} new playlist videos added. Some data was empty or incomplete. Tap Sync YouTube Data to retry.'
     Sign In Title: Sign in to your Google account
     Sign In Instructions: Scan the QR code with your phone to sign in without typing
       anything, or enter the code below on any device to authorize FreeTube to access

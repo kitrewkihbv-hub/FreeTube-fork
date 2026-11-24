@@ -375,7 +375,12 @@ async function syncAccountData() {
   }
 
   if (syncFailed || syncPartial) {
-    showToast(t('Settings.Account Settings.Sync Partial'))
+    showToast(t('Settings.Account Settings.Sync Partial', {
+      historyVideos: historyResult?.fetchedCount ?? 0,
+      playlists: playlistResult?.playlistCount ?? 0,
+      failedPlaylists: playlistResult?.failedPlaylistCount ?? 0,
+      playlistVideos: playlistResult?.videoCount ?? 0
+    }))
   } else {
     const historyCount = (historyResult?.addedCount ?? 0) + (historyResult?.updatedCount ?? 0)
 
