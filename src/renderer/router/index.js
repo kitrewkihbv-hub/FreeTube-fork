@@ -7,6 +7,7 @@ import Popular from '../views/Popular/Popular.vue'
 import UserPlaylists from '../views/UserPlaylists/UserPlaylists.vue'
 import History from '../views/History/History.vue'
 import Settings from '../views/Settings/Settings.vue'
+import AccountSignIn from '../views/AccountSignIn.vue'
 import About from '../views/About/About.vue'
 import SearchPage from '../views/SearchPage/SearchPage.vue'
 import Playlist from '../views/Playlist/Playlist.vue'
@@ -83,6 +84,14 @@ const router = createRouter({
         title: 'Settings'
       },
       component: Settings
+    },
+    {
+      path: '/account/sign-in',
+      name: 'accountSignIn',
+      meta: {
+        title: 'Sign In With Google'
+      },
+      component: AccountSignIn
     },
     {
       path: '/about',

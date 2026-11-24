@@ -1,0 +1,7 @@
+.accountSignInPage {
+  box-sizing: border-box;
+  inline-size: min(100%, 760px);
+  margin-inline: auto;
+  padding-block: 24px;
+  padding-inline: 16px;
+}

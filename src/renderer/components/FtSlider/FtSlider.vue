@@ -3,6 +3,7 @@
     class="pure-material-slider"
     :for="id"
     :data-settings-search-label="label"
+    :title="tooltip"
   >
     <input
       :id="id"
@@ -46,6 +47,10 @@ const props = defineProps({
     required: true
   },
   valueExtension: {
+    type: String,
+    default: null
+  },
+  tooltip: {
     type: String,
     default: null
   },

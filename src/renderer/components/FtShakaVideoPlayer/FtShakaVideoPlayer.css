@@ -216,8 +216,7 @@
 }
 
 @media only screen and (width <=1350px) {
-  :deep(.theatre-button),
-  :deep(.video-size-button) {
+  :deep(.theatre-button) {
     display: none;
   }
 }

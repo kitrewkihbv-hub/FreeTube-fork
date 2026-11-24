@@ -161,7 +161,7 @@
 
 <script setup>
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import GeneralSettings from '../../components/GeneralSettings/GeneralSettings.vue'
 import AccountSettings from '../../components/AccountSettings/AccountSettings.vue'
@@ -373,6 +373,7 @@ function handleUnlock() {
 }
 
 onBeforeUnmount(() => {
+  clearTimeout(linkedSectionScrollTimeout)
   document.removeEventListener('scroll', markScrolledToSectionAsActive)
   document.removeEventListener('keydown', handleSearchShortcut)
   window.removeEventListener('resize', handleResize)
@@ -414,10 +415,21 @@ function handleMounted() {
 }
 
 /**
- * Opens the section that other parts of the app link to with `?section=`.
- * This lets the account entry in the side navigation go straight to the sign in button.
+ * How long to wait before scrolling to a section that was linked to with `?section=`.
+ * The router has a `scrollBehavior` that scrolls back to the top of the page 500ms
+ * after a navigation, so scrolling earlier than that would get undone.
+ */
+const LINKED_SECTION_SCROLL_DELAY_MS = 600
+
+let linkedSectionScrollTimeout = null
+
+/**
+ * Opens the section that another part of the app linked to with `?section=`.
+ * The signed-in account entry in the side navigation uses this to open account details directly.
  */
 function scrollToRequestedSection() {
+  clearTimeout(linkedSectionScrollTimeout)
+
   const sectionType = route.query.section
 
   if (typeof sectionType !== 'string' || sectionType === '') return
@@ -426,10 +438,12 @@ function scrollToRequestedSection() {
 
   if (!sectionExists) return
 
-  nextTick(() => {
+  linkedSectionScrollTimeout = setTimeout(() => {
     navigateToSection(sectionType)
-  })
+  }, LINKED_SECTION_SCROLL_DELAY_MS)
 }
+
+watch(() => route.query.section, scrollToRequestedSection)
 
 function refreshSearchEntries() {
   if (!settingsSectionsRef.value) return
@@ -584,9 +598,12 @@ function navigateToSection(sectionType) {
 
   if (isInDesktopView.value) {
     nextTick(() => {
-      const sectionElement = sectionRefs.value.find(sectionRef => {
+      const sectionElement = sectionRefs.value?.find(sectionRef => {
         return sectionRef.$el.dataset.section === sectionType
       })?.$el
+
+      if (!sectionElement) return
+
       sectionElement.scrollIntoView()
 
       const sectionHeading = sectionElement.firstChild.firstChild

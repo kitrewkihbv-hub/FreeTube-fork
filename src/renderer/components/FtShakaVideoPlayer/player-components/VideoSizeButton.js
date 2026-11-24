@@ -74,8 +74,8 @@ export class VideoSizeButton extends shaka.ui.Element {
   updateLocalisedStrings_() {
     const size = this.getSize_()
 
-    this.button_.ariaLabel = i18n.global.t('Video.Player.Video Size', { size })
-    this.nameSpan_.textContent = this.button_.ariaLabel
+    this.nameSpan_.textContent = i18n.global.t('Video.Player.Video Size')
+    this.button_.ariaLabel = i18n.global.t('Video.Player.Video Size Aria Label', { size })
     this.currentState_.textContent = `${size}%`
 
     // Filled in when the video fills the window, outlined when it is scaled down

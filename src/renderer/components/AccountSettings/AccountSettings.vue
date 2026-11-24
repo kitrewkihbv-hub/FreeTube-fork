@@ -228,6 +228,13 @@ import { copyToClipboard, openExternalLink, showToast } from '../../helpers/util
 
 const USING_ELECTRON = !!process.env.IS_ELECTRON
 
+const props = defineProps({
+  autoStartSignIn: {
+    type: Boolean,
+    default: false
+  }
+})
+
 const { t } = useI18n()
 
 const confirmSignOut = ref(false)
@@ -388,6 +395,21 @@ watch(signInPrompt, (newPrompt) => {
     })
   }
 })
+
+const autoSignInStarted = ref(false)
+
+watch(
+  [() => props.autoStartSignIn, accountRestored, isSignedIn, signingIn, signInPrompt],
+  ([autoStartSignIn, isRestored, signedIn, isSigningIn, prompt]) => {
+    if (!autoStartSignIn || autoSignInStarted.value || !isRestored || signedIn || isSigningIn || prompt !== null) {
+      return
+    }
+
+    autoSignInStarted.value = true
+    startSignIn()
+  },
+  { immediate: true }
+)
 
 // The sign in attempt is intentionally not cancelled when this section is unmounted,
 // so that the authorization can still complete while the user browses the app.

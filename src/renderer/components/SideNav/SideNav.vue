@@ -161,10 +161,10 @@
         </p>
       </router-link>
       <router-link
-        v-if="!isSignedInToYouTubeAccount"
+        v-if="USING_ELECTRON && youTubeAccountRestored && !isSignedInToYouTubeAccount"
         class="navOption mobileShow accountNavOption"
         role="button"
-        :to="{ path: '/settings', query: { section: 'account' } }"
+        to="/account/sign-in"
         :title="$t('Settings.Account Settings.Sign In')"
       >
         <div class="thumbnailContainer">
@@ -296,6 +296,7 @@ import { KeyboardShortcuts } from '../../../constants'
 const { locale, t } = useI18n()
 
 const SUPPORTS_LOCAL_API = process.env.SUPPORTS_LOCAL_API
+const USING_ELECTRON = !!process.env.IS_ELECTRON
 
 /** @type {import('vue').ComputedRef<boolean>} */
 const isOpen = computed(() => {
@@ -407,6 +408,7 @@ const enableChannelLinks = computed(() => !store.getters.getDisableChannelLinks)
 
 /** @type {import('vue').ComputedRef<boolean>} */
 const isSignedInToYouTubeAccount = computed(() => store.getters.getIsSignedInToYouTubeAccount)
+const youTubeAccountRestored = computed(() => store.getters.getYouTubeAccountRestored)
 
 const youTubeAccountName = computed(() => {
   return store.getters.getYouTubeAccount.name || t('Settings.Account Settings.Signed In')

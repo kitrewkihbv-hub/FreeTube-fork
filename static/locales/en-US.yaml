@@ -1021,7 +1021,8 @@ Video:
     Autoplay is on: Autoplay is on
     Theatre Mode: Theater Mode
     Exit Theatre Mode: Exit Theater Mode
-    Video Size: 'Video size: {size}%'
+    Video Size: Video size
+    Video Size Aria Label: 'Video size: {size}%'
     Full Window: Full Window
     Exit Full Window: Exit Full Window
     Take Screenshot: Take Screenshot

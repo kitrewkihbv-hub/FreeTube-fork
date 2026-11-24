@@ -818,6 +818,7 @@ const uiConfig = computed(() => {
       props.format === 'legacy' ? 'ft_legacy_quality' : 'quality',
       'playback_rate',
       'captions-settings',
+      'ft_video_size',
       'ft_audio_tracks',
       'chapter',
       'loop',
@@ -845,6 +846,7 @@ const uiConfig = computed(() => {
     uiConfig.overflowMenuButtons.push(
       'ft_audio_tracks',
       'captions-settings',
+      'ft_video_size',
       'playback_rate',
       props.format === 'legacy' ? 'ft_legacy_quality' : 'quality',
       'chapter',
@@ -1955,6 +1957,9 @@ function cleanUpCustomPlayerControls() {
 
   shakaControls.registerElement('ft_theatre_mode', null)
   shakaOverflowMenu.registerElement('ft_theatre_mode', null)
+
+  shakaControls.registerElement('ft_video_size', null)
+  shakaOverflowMenu.registerElement('ft_video_size', null)
 
   shakaControls.registerElement('ft_full_window', null)
   shakaOverflowMenu.registerElement('ft_full_window', null)
