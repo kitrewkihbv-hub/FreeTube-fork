@@ -148,7 +148,6 @@
         />
         <span class="youtubeAccountLabel">{{ youTubeAccountNavText }}</span>
       </RouterLink>
-      <FtProfileSelector />
     </div>
   </nav>
 </template>
@@ -160,7 +159,6 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import FtInput from '../FtInput/FtInput.vue'
-import FtProfileSelector from '../FtProfileSelector/FtProfileSelector.vue'
 import FtIconButton from '../FtIconButton/FtIconButton.vue'
 
 import store from '../../store/index'

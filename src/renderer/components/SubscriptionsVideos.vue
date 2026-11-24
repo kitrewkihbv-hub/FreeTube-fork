@@ -158,15 +158,19 @@ function loadVideosFromCacheSometimes() {
     return
   }
 
-  // Auto fetch disabled, not enough cache for profile = show nothing
-  videoList.value = []
-  attemptedFetch.value = false
-  isLoading.value = false
+  // Preserve any available cached videos even if some channels have no cache yet.
+  if (cacheEntriesForAllActiveProfileChannels.value.some(entry => Array.isArray(entry.videos))) {
+    loadVideosFromCacheForAllActiveProfileChannels()
+  } else {
+    videoList.value = []
+    attemptedFetch.value = false
+    isLoading.value = false
+  }
 }
 
 function loadVideosFromCacheForAllActiveProfileChannels() {
   const videoList_ = cacheEntriesForAllActiveProfileChannels.value.flatMap((cacheEntry) => {
-    return cacheEntry.videos
+    return cacheEntry.videos ?? []
   })
 
   videoList.value = updateVideoListAfterProcessing(videoList_)
@@ -216,7 +220,7 @@ async function loadVideosForSubscriptionsFromRemote() {
     store.commit('setProgressBarPercentage', percentageComplete)
 
     if (videos != null) {
-      store.dispatch('updateSubscriptionVideosCacheByChannel', {
+      await store.dispatch('updateSubscriptionVideosCacheByChannel', {
         channelId: channel.id,
         videos: videos
       })

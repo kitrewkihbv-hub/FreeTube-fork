@@ -142,6 +142,8 @@ Subscriptions:
   YouTube Account Feed Info: This is the subscription feed from your YouTube account.
     Change this in the Account section of the settings.
   YouTube Account Feed Error: YouTube returned no readable videos or the feed could not be loaded. Try refreshing or show local subscriptions and import channels in Account settings.
+  YouTube Account Feed Refreshing: Refreshing subscriptions…
+  YouTube Account Feed Refresh Error: Could not refresh subscriptions. Showing the previous videos; try refreshing again.
   YouTube Account Feed Empty: There are no recent videos from the channels you are
     subscribed to on YouTube.
   Refresh: Refresh

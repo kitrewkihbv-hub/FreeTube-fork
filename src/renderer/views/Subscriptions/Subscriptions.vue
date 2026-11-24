@@ -102,7 +102,7 @@
         <FtButton
           :label="showYouTubeAccountFeed ? $t('Subscriptions.Switch to Local Feed') : $t('Subscriptions.Switch to YouTube Feed')"
           :icon="['fas', 'rotate']"
-          @click="useLocalFeed = !useLocalFeed"
+          @click="switchFeedSource"
         />
       </div>
       <SubscriptionsVideos
@@ -142,22 +142,29 @@
             @click="refreshAccountFeed"
           />
         </div>
-        <FtLoader v-if="accountFeedLoading" />
+        <FtLoader v-if="accountFeedLoading && accountFeed.length === 0" />
         <template v-else>
+          <p
+            v-if="accountFeedLoading"
+            class="accountFeedInfo"
+            role="status"
+          >
+            {{ $t('Subscriptions.YouTube Account Feed Refreshing') }}
+          </p>
           <p
             v-if="accountFeedError"
             class="accountFeedInfo"
             role="alert"
           >
-            {{ $t('Subscriptions.YouTube Account Feed Error') }}
+            {{ accountFeed.length > 0 ? $t('Subscriptions.YouTube Account Feed Refresh Error') : $t('Subscriptions.YouTube Account Feed Error') }}
           </p>
           <p
-            v-else-if="accountFeed.length === 0"
+            v-if="!accountFeedError && !accountFeedLoading && accountFeed.length === 0"
             class="accountFeedInfo"
           >
             {{ $t('Subscriptions.YouTube Account Feed Empty') }}
           </p>
-          <template v-else>
+          <template v-if="accountFeed.length > 0">
             <p
               v-if="accountFeedInfo?.source === 'channelUploads'"
               class="accountFeedInfo"
@@ -184,7 +191,7 @@
 
 <script setup>
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
-import { computed, onMounted, ref, useTemplateRef, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
 
 import FtCard from '../../components/ft-card/ft-card.vue'
 import FtFlexBox from '../../components/ft-flex-box/ft-flex-box.vue'
@@ -216,17 +223,27 @@ const accountFeedCache = computed(() => {
   return store.getters.getYouTubeAccountFeed
 })
 
+/** @type {import('vue').Ref<'videos' | 'shorts' | 'live' | 'community' | null>} */
+const currentTab = ref('videos')
+
 /**
  * The account feed replaces the "videos" tab when the user signed in and opted in to use it.
  * The other tabs (Shorts, live, posts) only exist in FreeTube's own subscriptions feed.
  */
-const useLocalFeed = ref(false)
 const showYouTubeAccountFeed = computed(() => {
-  return isSignedInToYouTubeAccount.value && (useYouTubeAccountFeed.value !== useLocalFeed.value) && currentTab.value === 'videos'
+  return isSignedInToYouTubeAccount.value && useYouTubeAccountFeed.value && currentTab.value === 'videos'
 })
+
+function switchFeedSource() {
+  store.dispatch('updateUseYouTubeAccountFeed', !useYouTubeAccountFeed.value)
+}
 
 const accountFeedError = ref(false)
 const accountFeedLoading = ref(false)
+const ACCOUNT_FEED_MAX_AGE_MS = 5 * 60 * 1000
+const ACCOUNT_FEED_RETRY_DELAY_MS = 60 * 1000
+let lastAccountFeedAttemptAt = 0
+let refreshTimer
 
 /** @type {import('vue').ComputedRef<object[]>} */
 const accountFeed = computed(() => {
@@ -236,6 +253,7 @@ const accountFeed = computed(() => {
 async function requestAccountFeed(refresh = false) {
   accountFeedError.value = false
   accountFeedLoading.value = true
+  lastAccountFeedAttemptAt = Date.now()
   try {
     await store.dispatch('grabYouTubeAccountFeed', { refresh })
   } catch (error) {
@@ -247,8 +265,13 @@ async function requestAccountFeed(refresh = false) {
 }
 
 function loadAccountFeed() {
-  if (!showYouTubeAccountFeed.value || store.getters.getYouTubeAccountFeed !== null || accountFeedLoading.value) return
-  requestAccountFeed()
+  if (!showYouTubeAccountFeed.value || accountFeedLoading.value) return
+  const hasCachedFeed = accountFeedCache.value !== null
+  const fetchedAt = accountFeedInfo.value?.fetchedAt ?? 0
+  const isStale = Date.now() - fetchedAt >= ACCOUNT_FEED_MAX_AGE_MS
+  if (hasCachedFeed && !isStale) return
+  if (accountFeedError.value && Date.now() - lastAccountFeedAttemptAt < ACCOUNT_FEED_RETRY_DELAY_MS) return
+  requestAccountFeed(hasCachedFeed)
 }
 
 function refreshAccountFeed() {
@@ -272,7 +295,23 @@ watch(isSignedInToYouTubeAccount, (value) => {
   }
 })
 
-onMounted(loadAccountFeed)
+function refreshAccountFeedWhenVisible() {
+  if (document.visibilityState !== 'hidden') loadAccountFeed()
+}
+
+onMounted(() => {
+  loadAccountFeed()
+  // Refresh while this page is open, and when the app returns from the background.
+  refreshTimer = window.setInterval(refreshAccountFeedWhenVisible, 60 * 1000)
+  window.addEventListener('focus', refreshAccountFeedWhenVisible)
+  document.addEventListener('visibilitychange', refreshAccountFeedWhenVisible)
+})
+
+onBeforeUnmount(() => {
+  window.clearInterval(refreshTimer)
+  window.removeEventListener('focus', refreshAccountFeedWhenVisible)
+  document.removeEventListener('visibilitychange', refreshAccountFeedWhenVisible)
+})
 
 // The cached feed belongs to the account that signed in, so it is not reused after signing out
 watch(isSignedInToYouTubeAccount, (signedIn, wasSignedIn) => {
@@ -300,9 +339,6 @@ const hideSubscriptionsLive = computed(() => {
 const hideSubscriptionsCommunity = computed(() => {
   return store.getters.getHideSubscriptionsCommunity
 })
-
-/** @type {import('vue').Ref<'videos' | 'shorts' | 'live' | 'community' | null>} */
-const currentTab = ref('videos')
 
 watch(currentTab, (value) => {
   if (value !== null) {

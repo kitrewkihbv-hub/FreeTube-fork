@@ -191,10 +191,6 @@ async function syncYouTubeAccountData({ onSignIn = false, onStartup = false } = 
     return
   }
 
-  if (onSignIn || isInitialSync) {
-    await store.dispatch('updateUseYouTubeAccountFeed', true)
-  }
-
   let subscriptionResult
   let historyResult
   let playlistResult

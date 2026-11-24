@@ -501,7 +501,7 @@ const actions = {
       const result = await getYouTubeAccountActivityFeed()
       if (generation === feedGeneration) {
         commit('setYouTubeAccountFeed', result.videos)
-        commit('setYouTubeAccountFeedInfo', result)
+        commit('setYouTubeAccountFeedInfo', { ...result, fetchedAt: Date.now() })
       }
       return result.videos
     })()
