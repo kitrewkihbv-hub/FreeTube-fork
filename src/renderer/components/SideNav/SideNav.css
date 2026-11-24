@@ -287,3 +287,6 @@
   }
 }
 
+.accountNavIcon {
+  color: var(--primary-color);
+}

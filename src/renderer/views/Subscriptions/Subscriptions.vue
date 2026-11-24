@@ -114,6 +114,37 @@
         id="subscriptionsPanel"
         role="tabpanel"
       />
+      <div
+        v-else-if="showYouTubeAccountFeed"
+        id="subscriptionsPanel"
+        class="accountFeed"
+        role="tabpanel"
+      >
+        <div class="accountFeedHeader">
+          <p class="accountFeedInfo">
+            {{ $t('Subscriptions.YouTube Account Feed Info') }}
+          </p>
+          <FtButton
+            :label="$t('Subscriptions.Refresh')"
+            :icon="['fas', 'rotate']"
+            :disabled="accountFeedLoading"
+            @click="refreshAccountFeed"
+          />
+        </div>
+        <FtLoader v-if="accountFeedLoading" />
+        <template v-else>
+          <p
+            v-if="accountFeed.length === 0"
+            class="accountFeedInfo"
+          >
+            {{ $t('Subscriptions.YouTube Account Feed Empty') }}
+          </p>
+          <FtElementList
+            v-else
+            :data="accountFeed"
+          />
+        </template>
+      </div>
       <p v-else>
         {{ $t("Subscriptions.All Subscription Tabs Hidden", {
           subsection: $t('Settings.Distraction Free Settings.Sections.Subscriptions Page'),
@@ -126,16 +157,94 @@
 
 <script setup>
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
-import { computed, ref, useTemplateRef, watch } from 'vue'
+import { computed, onMounted, ref, useTemplateRef, watch } from 'vue'
 
 import FtCard from '../../components/ft-card/ft-card.vue'
 import FtFlexBox from '../../components/ft-flex-box/ft-flex-box.vue'
+import FtButton from '../../components/FtButton/FtButton.vue'
+import FtElementList from '../../components/FtElementList/FtElementList.vue'
+import FtLoader from '../../components/FtLoader/FtLoader.vue'
 import SubscriptionsVideos from '../../components/SubscriptionsVideos.vue'
 import SubscriptionsLive from '../../components/SubscriptionsLive.vue'
 import SubscriptionsShorts from '../../components/SubscriptionsShorts.vue'
 import SubscriptionsPosts from '../../components/SubscriptionPosts/SubscriptionsPosts.vue'
 
 import store from '../../store/index'
+
+/** @type {import('vue').ComputedRef<boolean>} */
+const isSignedInToYouTubeAccount = computed(() => {
+  return store.getters.getIsSignedInToYouTubeAccount
+})
+
+/** @type {import('vue').ComputedRef<boolean>} */
+const useYouTubeAccountFeed = computed(() => {
+  return store.getters.getUseYouTubeAccountFeed
+})
+
+/** @type {import('vue').ComputedRef<boolean>} */
+const accountFeedBusy = computed(() => {
+  return store.getters.getYouTubeAccountBusy
+})
+
+/** @type {import('vue').ComputedRef<object[]|null>} */
+const accountFeedCache = computed(() => {
+  return store.getters.getYouTubeAccountFeed
+})
+
+/**
+ * The account feed replaces the "videos" tab when the user signed in and opted in to use it.
+ * The other tabs (Shorts, live, posts) only exist in FreeTube's own subscriptions feed.
+ */
+const showYouTubeAccountFeed = computed(() => {
+  return isSignedInToYouTubeAccount.value && useYouTubeAccountFeed.value && currentTab.value === 'videos'
+})
+
+const accountFeedLoading = computed(() => {
+  return accountFeedBusy.value || accountFeedCache.value === null
+})
+
+/** @type {import('vue').ComputedRef<object[]>} */
+const accountFeed = computed(() => {
+  return accountFeedCache.value ?? []
+})
+
+function loadAccountFeed() {
+  if (!showYouTubeAccountFeed.value || store.getters.getYouTubeAccountFeed !== null) {
+    return
+  }
+
+  store.dispatch('grabYouTubeAccountFeed').catch((error) => {
+    console.error('failed to load the YouTube account feed', error)
+  })
+}
+
+function refreshAccountFeed() {
+  store.dispatch('grabYouTubeAccountFeed', { refresh: true }).catch((error) => {
+    console.error('failed to refresh the YouTube account feed', error)
+  })
+}
+
+watch(showYouTubeAccountFeed, (value) => {
+  if (value) {
+    loadAccountFeed()
+  }
+})
+
+// The feed has to be requested after the app has finished loading the account details
+watch(isSignedInToYouTubeAccount, (value) => {
+  if (value) {
+    loadAccountFeed()
+  }
+})
+
+onMounted(loadAccountFeed)
+
+// The cached feed belongs to the account that signed in, so it is not reused after signing out
+watch(isSignedInToYouTubeAccount, (signedIn, wasSignedIn) => {
+  if (wasSignedIn === true && signedIn === false) {
+    store.dispatch('clearYouTubeAccountFeed')
+  }
+})
 
 /** @type {import('vue').ComputedRef<boolean>} */
 const hideSubscriptionsVideos = computed(() => {

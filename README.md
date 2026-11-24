@@ -50,7 +50,7 @@ longer track you using cookies or JavaScript. Your subscriptions, playlists and 
 * Watch videos without ads
 * Use YouTube without Google tracking you using cookies and JavaScript
 * Two extractor APIs to choose from (Built in or Invidious)
-* Subscribe to channels without an account
+* Subscribe to channels without an account, or optionally sign in with your Google / YouTube account (desktop app)
 * Connect to an externally setup proxy such as Tor
 * View and search your local subscriptions, playlists and history
 * Organize your subscriptions into "Profiles" to create a more focused feed

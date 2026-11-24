@@ -201,6 +201,29 @@ onMounted(async () => {
       document.addEventListener('auxclick', handleAuxClick)
       enableOpenUrl()
       store.dispatch('getExternalPlayerCmdArgumentsData')
+
+      // Restore the Google / YouTube account and start listening for the sign in results
+      window.ftElectron.handleYouTubeAccountSignInSuccess(() => {
+        store.dispatch('handleYouTubeAccountSignInSuccess').then(() => {
+          if (store.getters.getSignInSyncSubscriptions) {
+            store.dispatch('syncSubscriptionsFromYouTubeAccount')
+          }
+
+          if (store.getters.getUseYouTubeAccountFeed) {
+            store.dispatch('grabYouTubeAccountFeed', { refresh: true })
+          }
+
+          showToast(t('Settings.Account Settings.Signed In Toast'))
+        })
+      })
+
+      window.ftElectron.handleYouTubeAccountSignInError((errorMessage) => {
+        store.dispatch('handleYouTubeAccountSignInError')
+
+        showToast(t('Settings.Account Settings.Sign In Error With Reason', { reason: errorMessage }))
+      })
+
+      store.dispatch('grabYouTubeAccount')
     }
 
     dataReady.value = true

@@ -85,8 +85,17 @@ if (process.env.SUPPORTS_LOCAL_API) {
  * @param {import('youtubei.js').ClientType} options.clientType use an alterate client
  * @param {boolean} options.generateSessionLocally generate the session locally or let YouTube generate it (local is faster, remote is more accurate)
  * @param {?import('youtubei.js').Types.FetchFunction} options.fetchFunc optional custom fetch function
+ * @param {string} options.userAgent the user agent to use for the requests
  */
-async function createSession({ withPlayer = false, location = undefined, safetyMode = false, clientType = undefined, generateSessionLocally = true, fetchFunc = null } = {}) {
+async function createSession({
+  withPlayer = false,
+  location = undefined,
+  safetyMode = false,
+  clientType = undefined,
+  generateSessionLocally = true,
+  fetchFunc = null,
+  userAgent = navigator.userAgent,
+} = {}) {
   let cache
   if (withPlayer) {
     if (process.env.IS_ELECTRON) {
@@ -101,7 +110,7 @@ async function createSession({ withPlayer = false, location = undefined, safetyM
     // That behavior is highly undesirable for FreeTube, as we want to create a new session every time to limit tracking.
     enable_session_cache: false,
     retrieve_innertube_config: !generateSessionLocally,
-    user_agent: navigator.userAgent,
+    user_agent: userAgent,
 
     retrieve_player: !!withPlayer,
     location: location,
@@ -367,6 +376,303 @@ export async function getLocalTrending(location, tab) {
 
   return feed.videos.map(video => parseLocalListVideo(video)).filter(_ => _)
 }
+
+// #region YouTube account
+//
+// Signing in with a Google / YouTube account uses the same OAuth2 device flow
+// as the YouTube TV app (the tokens are stored by the Electron main process).
+
+/**
+ * @typedef {object} YouTubeAccountTokens
+ * @property {string} access_token
+ * @property {string} refresh_token
+ * @property {string} expiry_date
+ * @property {string} [scope]
+ * @property {string} [token_type]
+ * @property {{ client_id: string, client_secret: string }} [client]
+ */
+
+/** How many continuation pages of the subscriptions feed are fetched when importing the subscriptions */
+const SUBSCRIPTIONS_FEED_PAGES_TO_FETCH = 5
+
+/** The user agent of the YouTube TV app, which is the client that the account tokens belong to */
+const TV_CLIENT_USER_AGENT = 'Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version'
+
+/** @type {YouTubeAccountTokens | null} */
+let accountTokens = null
+
+/** @type {Innertube | null} */
+let accountInnertube = null
+
+/**
+ * The account tokens are periodically refreshed by YouTube,
+ * so we need to make sure that the main process has the newest ones.
+ * @param {YouTubeAccountTokens} tokens
+ */
+function saveAccountTokens(tokens) {
+  accountTokens = tokens
+
+  if (process.env.IS_ELECTRON) {
+    window.ftElectron.updateAccountTokens(tokens)
+  }
+}
+
+/**
+ * @returns {Promise<YouTubeAccountTokens | null>}
+ */
+async function getAccountTokens() {
+  if (!process.env.IS_ELECTRON) {
+    return null
+  }
+
+  if (accountTokens === null) {
+    accountTokens = await window.ftElectron.getAccountTokens()
+  }
+
+  return accountTokens
+}
+
+/**
+ * Removes the in-memory account data, so that the next request starts fresh
+ */
+export function clearYouTubeAccountSession() {
+  accountTokens = null
+  accountInnertube = null
+}
+
+/**
+ * Returns an Innertube instance that is signed in to the YouTube account.
+ *
+ * The instance is created with the TV client, which is the client that the OAuth2
+ * tokens belong to. It is reused so that the access token is only refreshed when needed.
+ *
+ * @returns {Promise<Innertube|null>} null when not signed in
+ */
+export async function getYouTubeAccountInnertube() {
+  const tokens = await getAccountTokens()
+
+  if (tokens === null) {
+    return null
+  }
+
+  if (accountInnertube === null) {
+    accountInnertube = await createInnertube({
+      clientType: ClientType.TV,
+      // the TVInnerTube API expects requests from the TV app
+      userAgent: TV_CLIENT_USER_AGENT
+    })
+
+    accountInnertube.session.on('update-credentials', ({ credentials }) => {
+      saveAccountTokens({ ...accountTokens, ...credentials })
+    })
+
+    await accountInnertube.session.signIn(tokens)
+  }
+
+  return accountInnertube
+}
+
+/**
+ * @returns {Promise<boolean>}
+ */
+export async function isSignedInToYouTubeAccount() {
+  if (!process.env.IS_ELECTRON) {
+    return false
+  }
+
+  return (await getAccountTokens()) !== null
+}
+
+/**
+ * Retrieves the details of the signed in account (name, avatar, channel) and stores them
+ * in the main process so that the UI can show them without having to sign in again.
+ *
+ * @returns {Promise<{ signedIn: boolean, name?: string|null, channelId?: string|null, thumbnail?: string|null, handle?: string|null }>}
+ */
+export async function getYouTubeAccountInfo() {
+  if (!process.env.IS_ELECTRON) {
+    return { signedIn: false }
+  }
+
+  const innertube = await getYouTubeAccountInnertube()
+
+  if (innertube === null) {
+    return { signedIn: false }
+  }
+
+  try {
+    const accountInfo = await innertube.account.getInfo()
+
+    /** @type {import('youtubei.js').YTNodes.AccountItem} */
+    const accountItem = accountInfo.contents?.contents?.find(item => item.type === 'AccountItem')
+
+    // When the account switched to a brand channel, the channel itself is listed as a footer
+    const accountChannel = accountInfo.contents?.footers?.firstOfType(YTNodes.AccountChannel)
+
+    const channelId = accountItem?.endpoint?.payload?.browseId ??
+      accountChannel?.endpoint?.payload?.browseId ??
+      accountChannel?.endpoint?.payload?.browseEndpoint?.browseId ??
+      null
+
+    const accountDetails = {
+      signedIn: true,
+      name: accountItem?.account_name?.text ?? null,
+      channelId,
+      thumbnail: accountItem?.account_photo?.[0]?.url ?? null,
+      handle: accountItem?.channel_handle?.text || null
+    }
+
+    await window.ftElectron.updateYouTubeAccountInfo(accountDetails)
+
+    return accountDetails
+  } catch (error) {
+    console.error('failed to retrieve the YouTube account details', error)
+
+    return { signedIn: true }
+  }
+}
+
+/**
+ * Retrieves the channels that the signed in account is subscribed to on YouTube.
+ *
+ * @returns {Promise<{ id: string, name: string, thumbnail: string }[]>}
+ */
+export async function getYouTubeAccountSubscriptions() {
+  const innertube = await getYouTubeAccountInnertube()
+
+  if (innertube === null) {
+    throw new Error('You must be signed in to your YouTube account.')
+  }
+
+  /** @type {Map<string, { id: string, name: string, thumbnail: string }>} */
+  const channels = new Map()
+
+  const addChannel = (id, name, thumbnail) => {
+    if (id && name && !channels.has(id)) {
+      channels.set(id, { id, name, thumbnail: thumbnail ?? '' })
+    }
+  }
+
+  /** @param {import('youtubei.js').Mixins.Feed} feed */
+  const addFeedChannels = (feed) => {
+    for (const video of feed.videos) {
+      addChannel(
+        video.author?.id,
+        video.author?.name,
+        video.author?.best_thumbnail?.url
+      )
+    }
+  }
+
+  // The subscriptions feed lists the most recent uploads, so it only contains channels that uploaded recently.
+  // Fetching a few continuation pages makes it possible to find the less active channels too.
+  try {
+    let feed = await innertube.getSubscriptionsFeed()
+
+    addFeedChannels(feed)
+
+    for (let page = 0; page < SUBSCRIPTIONS_FEED_PAGES_TO_FETCH && feed.has_continuation; page++) {
+      feed = await feed.getContinuation()
+
+      addFeedChannels(feed)
+    }
+  } catch (error) {
+    console.error('failed to retrieve the subscriptions feed', error)
+  }
+
+  // The guide contains the channel list in the sidebar of YouTube, i.e. the channels the user actually subscribed to
+  try {
+    const guide = await innertube.getGuide()
+
+    for (const section of guide.contents ?? []) {
+      for (const entry of section.items ?? []) {
+        if (entry.type !== 'GuideEntry') {
+          continue
+        }
+
+        /** @type {import('youtubei.js').YTNodes.GuideEntry} */
+        const guideEntry = entry
+
+        addChannel(
+          guideEntry.endpoint?.payload?.browseId,
+          guideEntry.title?.text,
+          guideEntry.thumbnails?.at(-1)?.url
+        )
+      }
+    }
+  } catch (error) {
+    console.error('failed to retrieve the subscriptions guide', error)
+  }
+
+  // Fall back to the channels page when the guide only returned the "recently uploaded" channels
+  if (channels.size === 0) {
+    try {
+      const channelsFeed = await innertube.getChannelsFeed()
+
+      for (const channel of channelsFeed.channels) {
+        addChannel(
+          channel.id,
+          channel.author?.name,
+          channel.author?.best_thumbnail?.url
+        )
+      }
+    } catch (error) {
+      console.error('failed to retrieve the channels feed', error)
+    }
+  }
+
+  return Array.from(channels.values()).sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/**
+ * Subscribes to or unsubscribes from a channel on YouTube using the signed in account.
+ *
+ * @param {string} channelId
+ * @param {boolean} subscribed
+ */
+export async function setYouTubeAccountSubscription(channelId, subscribed) {
+  const innertube = await getYouTubeAccountInnertube()
+
+  if (innertube === null) {
+    throw new Error('You must be signed in to your YouTube account.')
+  }
+
+  if (subscribed) {
+    await innertube.interact.subscribe(channelId)
+  } else {
+    await innertube.interact.unsubscribe(channelId)
+  }
+}
+
+/**
+ * Retrieves the activity feed (videos, Shorts and live streams) of the channels
+ * that the signed in account is subscribed to on YouTube.
+ *
+ * @returns {Promise<object[]>}
+ */
+export async function getYouTubeAccountActivityFeed() {
+  const innertube = await getYouTubeAccountInnertube()
+
+  if (innertube === null) {
+    throw new Error('You must be signed in to your YouTube account.')
+  }
+
+  const feed = await innertube.getSubscriptionsFeed()
+
+  return parseYouTubeAccountFeedItems(feed.videos)
+}
+
+/**
+ * Videos are parsed with `parseLocalListVideo`, so this also covers the
+ * `LockupView` items that YouTube uses in the subscriptions feed nowadays.
+ *
+ * @param {import('youtubei.js').Helpers.YTNode[]} items
+ * @returns {object[]}
+ */
+export function parseYouTubeAccountFeedItems(items) {
+  return items.map(item => parseListItem(item)).filter(item => item?.type === 'video')
+}
+// #endregion YouTube account
 
 /**
  * @param {string} query
@@ -1868,7 +2174,7 @@ export function parseLocalListVideo(item, channelId, channelName) {
       publishedText = video.published.text
     }
 
-    const isLive = video.duration.text === 'LIVE'
+    const isLive = video.duration?.text === 'LIVE'
 
     const published = calculatePublishedDate(
       publishedText,
@@ -1886,7 +2192,7 @@ export function parseLocalListVideo(item, channelId, channelName) {
       collaborators: video.author == null ? [] : parseLocalCollaborators(video.author.collaborators),
       viewCount: video.views.text == null ? null : extractNumberFromString(video.views.text),
       published,
-      lengthSeconds: isLive ? '' : Utils.timeToSeconds(video.duration.text),
+      lengthSeconds: isLive || video.duration == null ? '' : Utils.timeToSeconds(video.duration.text),
       isUpcoming: video.is_upcoming,
       premiereDate: video.upcoming,
       liveNow: isLive
@@ -2174,7 +2480,7 @@ function parseLockupView(lockupView, channelId = undefined, channelName = undefi
  * @param {string} [channelId]
  * @param {string} [channelName]
  */
-function parseListItem(item, channelId, channelName) {
+export function parseListItem(item, channelId, channelName) {
   switch (item.type) {
     case 'Movie':
     case 'Video':

@@ -1,0 +1,125 @@
+.accountNotice,
+.accountDisclaimer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-block: 0 10px;
+  margin-inline: 20px;
+  font-size: 14px;
+}
+
+.accountDisclaimer {
+  color: var(--secondary-text-color);
+}
+
+.accountDetails {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-block: 10px;
+  margin-inline: 20px;
+}
+
+.accountThumbnail {
+  border-radius: 50%;
+  flex-shrink: 0;
+  block-size: 64px;
+  inline-size: 64px;
+  object-fit: cover;
+}
+
+.accountThumbnailPlaceholder {
+  color: var(--secondary-text-color);
+  block-size: 64px;
+  inline-size: 64px;
+}
+
+.accountText {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  p {
+    margin: 0;
+    text-overflow: ellipsis;
+    overflow: hidden;
+  }
+}
+
+.accountName {
+  font-size: 20px;
+  font-weight: bold;
+}
+
+.accountHandle,
+.accountChannelId {
+  color: var(--secondary-text-color);
+  font-size: 14px;
+}
+
+.accountOptions {
+  margin-block-start: 10px;
+}
+
+.signInPromptTitle {
+  margin-block: 0 10px;
+}
+
+.signInPromptText {
+  text-align: center;
+  margin-block: 10px;
+}
+
+.signInPromptBody {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-block: 16px;
+}
+
+.signInQrCode {
+  /* the QR code is generated as a black on white image, so it stays scannable in dark themes */
+  block-size: 168px;
+  inline-size: 168px;
+  padding: 8px;
+  border-radius: 8px;
+  background-color: #fff;
+  image-rendering: pixelated;
+}
+
+.signInCodeContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.signInCodeLabel {
+  color: var(--secondary-text-color);
+  font-size: 14px;
+  margin: 0;
+}
+
+.signInCode {
+  font-family: monospace;
+  font-size: 32px;
+  font-weight: bold;
+  letter-spacing: 4px;
+  text-align: center;
+  user-select: all;
+  margin-block: 4px 10px;
+}
+
+.signInStatus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--secondary-text-color);
+  margin-block: 10px 0;
+}
+
+.signInStatusIcon {
+  color: var(--primary-color);
+}

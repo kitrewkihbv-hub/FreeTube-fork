@@ -31,6 +31,17 @@ import packageDetails from '../../package.json'
 import { handleOpenInExternalPlayer } from './externalPlayer'
 import { generatePoToken } from './poTokenGenerator'
 import { isFreeTubeUrl } from './utils'
+import {
+  cancelSignIn,
+  getAccountTokens,
+  getLoadedAccountState,
+  initYoutubeAccount,
+  loadAccountState,
+  signOut,
+  startSignIn,
+  updateAccountInfo,
+  updateAccountTokens,
+} from './youtubeAccount'
 
 const brotliDecompressAsync = promisify(brotliDecompress)
 
@@ -321,6 +332,9 @@ function runApp() {
   }
 
   const PLAYER_CACHE_PATH = `${userDataPath}/player_cache`
+
+  initYoutubeAccount(userDataPath)
+  loadAccountState()
 
   // See: https://stackoverflow.com/questions/45570589/electron-protocol-handler-not-working-on-windows
   // remove so we can register each time as we run the app.
@@ -1313,6 +1327,75 @@ function runApp() {
     if (isFreeTubeUrl(event.senderFrame.url)) {
       return generatePoToken(videoId, context, initialAttestationData, ytConfig, proxyUrl)
     }
+  })
+
+  ipcMain.handle(IpcChannels.ACCOUNT_GET_STATE, async (event) => {
+    if (!isFreeTubeUrl(event.senderFrame.url)) {
+      return
+    }
+
+    return await getLoadedAccountState()
+  })
+
+  ipcMain.handle(IpcChannels.ACCOUNT_SIGN_IN, async (event) => {
+    if (!isFreeTubeUrl(event.senderFrame.url)) {
+      return
+    }
+
+    const webContents = event.sender
+
+    const sendToRenderer = (channel, ...args) => {
+      if (!webContents.isDestroyed()) {
+        webContents.send(channel, ...args)
+      }
+    }
+
+    return startSignIn(
+      (accountState) => sendToRenderer(IpcChannels.ACCOUNT_SIGN_IN_SUCCESS, accountState),
+      (errorMessage) => sendToRenderer(IpcChannels.ACCOUNT_SIGN_IN_ERROR, errorMessage)
+    )
+  })
+
+  ipcMain.handle(IpcChannels.ACCOUNT_SIGN_OUT, async (event) => {
+    if (!isFreeTubeUrl(event.senderFrame.url)) {
+      return
+    }
+
+    return signOut()
+  })
+
+  ipcMain.handle(IpcChannels.ACCOUNT_CANCEL_SIGN_IN, async (event) => {
+    if (!isFreeTubeUrl(event.senderFrame.url)) {
+      return
+    }
+
+    await cancelSignIn()
+  })
+
+  ipcMain.handle(IpcChannels.ACCOUNT_GET_TOKENS, async (event) => {
+    if (!isFreeTubeUrl(event.senderFrame.url)) {
+      return
+    }
+
+    await getLoadedAccountState()
+
+    return getAccountTokens()
+  })
+
+  ipcMain.handle(IpcChannels.ACCOUNT_UPDATE_TOKENS, async (event, tokens) => {
+    if (!isFreeTubeUrl(event.senderFrame.url)) {
+      return
+    }
+
+    await updateAccountTokens(tokens)
+  })
+
+  ipcMain.handle(IpcChannels.ACCOUNT_UPDATE, (event, accountInfo) => {
+    if (!isFreeTubeUrl(event.senderFrame.url)) {
+      return
+    }
+
+    return updateAccountInfo(accountInfo)
   })
 
   ipcMain.on(IpcChannels.ENABLE_PROXY, (event, url) => {

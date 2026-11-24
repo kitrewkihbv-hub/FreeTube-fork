@@ -173,40 +173,6 @@
   height: 100%;
 }
 
-:deep(.playerFullscreenTitleOverlay) {
-  display: none;
-  opacity: 0;
-  position: absolute;
-  margin: 0;
-  top: 5px;
-  left: 5px;
-  max-width: calc(100% - 10px);
-  font-size: xx-large;
-  color: #fff;
-  font-weight: normal;
-  background-color: rgb(0 0 0 / 50%);
-  border-radius: 5px;
-  text-overflow: ellipsis;
-  text-wrap: nowrap;
-  overflow: hidden;
-
-  /* copied from .shaka-scrim-container */
-  transition: opacity cubic-bezier(0.4, 0, 0.6, 1) 0.6s;
-}
-
-:deep(.playerFullscreenTitleOverlay:dir(rtl)) {
-  left: initial;
-  right: 5px;
-}
-
-.ftVideoPlayer:fullscreen :deep(.playerFullscreenTitleOverlay) {
-  display: block;
-}
-
-:deep(.shaka-controls-container[shown='true'] > .playerFullscreenTitleOverlay) {
-  opacity: 1;
-}
-
 :deep(.shaka-controls-button-panel>.ft-shaka-skip-button .shaka-ui-icon) {
   font-size: 32px;
 }
@@ -243,12 +209,6 @@
   }
 }
 
-@media only screen and (width <=1000px) {
-  :deep(.playerFullscreenTitleOverlay) {
-    font-size: large;
-  }
-}
-
 @media only screen and (width <=1350px) {
   :deep(.theatre-button) {
     display: none;
@@ -256,7 +216,6 @@
 }
 
 @media (prefers-reduced-transparency) {
-  :deep(.playerFullscreenTitleOverlay),
   .skippedSegment,
   .stats {
     background-color: rgb(0 0 0 / 90%);

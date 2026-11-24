@@ -165,6 +165,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTem
 import { useI18n } from 'vue-i18n'
 
 import GeneralSettings from '../../components/GeneralSettings/GeneralSettings.vue'
+import AccountSettings from '../../components/AccountSettings/AccountSettings.vue'
 import ThemeSettings from '../../components/ThemeSettings.vue'
 import PlayerSettings from '../../components/PlayerSettings/PlayerSettings.vue'
 import ExternalPlayerSettings from '../../components/ExternalPlayerSettings.vue'
@@ -238,6 +239,12 @@ const settingsComponentsData = computed(() => {
           component: ExternalPlayerSettings
         }]
       : []),
+    {
+      type: 'account',
+      title: t('Settings.Account Settings.Account Settings'),
+      icon: ['fas', 'circle-user'],
+      component: AccountSettings
+    },
     {
       type: 'subscription',
       title: t('Settings.Subscription Settings.Subscription Settings'),

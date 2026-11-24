@@ -252,6 +252,9 @@ const state = {
   watchedProgressSavingMode: 'auto',
   saveVideoHistoryWithLastViewedPlaylist: true,
   showFamilyFriendlyOnly: false,
+  signInSyncSubscriptions: false,
+  signInSyncToYouTube: false,
+  useYouTubeAccountFeed: false,
   sponsorBlockShowSkippedToast: true,
   sponsorBlockUrl: 'https://sponsor.ajay.app',
   sponsorBlockSponsor: {
@@ -453,6 +456,11 @@ export const NON_TRANSFERABLE_SETTINGS = new Set([
   'backendFallback',
   'backendPreference',
   'proxyVideos',
+
+  /* Depends on the signed in account */
+  'signInSyncSubscriptions',
+  'signInSyncToYouTube',
+  'useYouTubeAccountFeed',
 ])
 
 const customState = {

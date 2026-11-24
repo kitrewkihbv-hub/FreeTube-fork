@@ -135,6 +135,11 @@ Subscriptions:
   Load More Posts: Load More Posts
   Subscriptions Tabs: Subscriptions Tabs
   All Subscription Tabs Hidden: 'All subscription tabs are hidden. To see content here, please unhide some tabs in the "{subsection}" section in "{settingsSection}".'
+  YouTube Account Feed Info: This is the subscription feed from your YouTube account.
+    Change this in the Account section of the settings.
+  YouTube Account Feed Empty: There are no recent videos from the channels you are
+    subscribed to on YouTube.
+  Refresh: Refresh
   Posts:
     RSS Message: YouTube does not provide RSS feeds for posts. Disable the "{rssSetting}" setting to view posts or enable the "{hideSetting}" setting to hide this tab.
 More: More
@@ -280,6 +285,49 @@ Settings:
   Return to Settings Menu: Return to Settings Menu
   The app needs to restart for changes to take effect. Restart and apply change?: The
     app needs to restart for changes to take effect. Restart and apply change?
+  Account Settings:
+    Account Settings: Account
+    Desktop Only: Signing in with a Google / YouTube account is only available in the
+      desktop app.
+    Signed In: Signed In
+    Signed In Toast: Signed in to your Google account
+    Channel ID: 'Channel ID: {channelId}'
+    Sign In: Sign In With Google
+    Sign In Title: Sign in to your Google account
+    Sign In Instructions: Scan the QR code with your phone to sign in without typing
+      anything, or enter the code below on any device to authorize FreeTube to access
+      your YouTube account.
+    Sign In QR Code Alt: QR code that opens the sign in page
+    Sign In Code Label: Or enter this code
+    Sign In Second Screen Instructions: After you pick your Google account and approve
+      the sign in on your phone, FreeTube will sign in automatically.
+    Sign In Waiting: Waiting for you to approve the sign in…
+    Sign In Link Instructions: Having trouble scanning the QR code? Open the sign in
+      page in this browser instead.
+    Open Sign In Page: Open Sign In Page
+    Copy Code: Copy Code
+    Cancel Sign In: Cancel
+    Code Copied: Code copied to the clipboard
+    Sign In Error: Unable to start the sign in process
+    Sign In Error With Reason: 'Unable to sign in: {reason}'
+    Sign Out: Sign Out
+    Sign Out Confirmation: Are you sure you want to sign out of your Google account?
+    Signed Out: You have been signed out of your Google account
+    Refresh Account Details: Refresh Account Details
+    Import Subscriptions: Import Subscriptions
+    Subscriptions Imported: 'Imported {count} of {total} YouTube subscriptions into your
+      profile'
+    Subscriptions Import Error: Unable to import your YouTube subscriptions
+    Export Subscriptions: Subscribe on YouTube to Your Profile's Channels
+    Subscriptions Exported: 'Subscribed to {count} channel(s) on YouTube'
+    Subscriptions Export Error: Unable to subscribe to your channels on YouTube
+    Sync Subscriptions to the Active Profile: Import YouTube Subscriptions Into the
+      Active Profile on Sign In
+    Use Account Feed: Use YouTube Account Subscriptions Feed
+    Sync Subscriptions to YouTube: Also Subscribe on YouTube
+    Disclaimer: Your session tokens are stored on this device only, encrypted with
+      your operating system's keychain whenever possible. FreeTube never sends them
+      anywhere and you can sign out at any time.
   General Settings:
     General Settings: General
     Check for Updates: Check for Updates
@@ -803,6 +851,8 @@ Channel:
     your subscriptions
   Removed subscription from {count} other channel(s): Removed subscription from {count} other channel(s)
   Added channel to your subscriptions: Added channel to your subscriptions
+  Failed to sync the subscription with YouTube: Failed to sync the subscription with
+    YouTube
   Search Channel: Search Channel
   Your search results have returned 0 results: Your search results have returned 0
     results
@@ -1135,6 +1185,13 @@ Tooltips:
     Hide Subscriptions Live: 'This setting is overridden by the app-wide "{appWideSetting}" setting, in the "{subsection}" section of the "{settingsSection}"'
     Hide Videos, Playlists and Channels Containing Text: Enter a word, word fragment, or phrase (case insensitive) to hide all videos, playlists and channels whose original titles contain it throughout all of FreeTube, excluding only History, Your Playlists, and videos inside of playlists.
     Hide Videos on Watch: 'Hides watched videos from the Videos, Shorts, and Live tabs on the Subscription and Channel pages. This does not affect the Home tab on Channel pages'
+  Account Settings:
+    Sync Subscriptions to the Active Profile: After signing in, add the channels that
+      you are subscribed to on YouTube to the profile that is currently active.
+    Use Account Feed: Show the subscription feed from your YouTube account on the
+      Subscriptions page instead of FreeTube's own subscription feed.
+    Sync Subscriptions to YouTube: When you subscribe or unsubscribe in FreeTube,
+      the same change is made to your YouTube account.
   Subscription Settings:
     Fetch Feeds from RSS: When enabled, FreeTube will use RSS instead of its default
       method for grabbing your subscription feed. RSS is faster and prevents IP blocking,

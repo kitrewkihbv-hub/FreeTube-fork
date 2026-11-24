@@ -127,6 +127,71 @@ export default {
     return ipcRenderer.invoke(IpcChannels.GENERATE_PO_TOKEN, videoId, context, initialAttestationData, ytConfig)
   },
 
+  /**
+   * @returns {Promise<import('../main/youtubeAccount').AccountState>}
+   */
+  getAccountState: () => {
+    return ipcRenderer.invoke(IpcChannels.ACCOUNT_GET_STATE)
+  },
+
+  /**
+   * @returns {Promise<import('../main/youtubeAccount').AccountTokens | null>}
+   */
+  getAccountTokens: () => {
+    return ipcRenderer.invoke(IpcChannels.ACCOUNT_GET_TOKENS)
+  },
+
+  /**
+   * @param {import('../main/youtubeAccount').AccountTokens} tokens
+   */
+  updateAccountTokens: (tokens) => {
+    return ipcRenderer.invoke(IpcChannels.ACCOUNT_UPDATE_TOKENS, tokens)
+  },
+
+  /**
+   * @returns {Promise<{ user_code: string, verification_url: string, expires_in: number }>}
+   */
+  signInToYouTubeAccount: () => {
+    return ipcRenderer.invoke(IpcChannels.ACCOUNT_SIGN_IN)
+  },
+
+  cancelYouTubeAccountSignIn: () => {
+    return ipcRenderer.invoke(IpcChannels.ACCOUNT_CANCEL_SIGN_IN)
+  },
+
+  /**
+   * @returns {Promise<import('../main/youtubeAccount').AccountState>}
+   */
+  signOutOfYouTubeAccount: () => {
+    return ipcRenderer.invoke(IpcChannels.ACCOUNT_SIGN_OUT)
+  },
+
+  /**
+   * @param {Partial<import('../main/youtubeAccount').AccountState>} accountInfo
+   * @returns {Promise<import('../main/youtubeAccount').AccountState>}
+   */
+  updateYouTubeAccountInfo: (accountInfo) => {
+    return ipcRenderer.invoke(IpcChannels.ACCOUNT_UPDATE, accountInfo)
+  },
+
+  /**
+   * @param {(accountState: import('../main/youtubeAccount').AccountState) => void} handler
+   */
+  handleYouTubeAccountSignInSuccess: (handler) => {
+    ipcRenderer.on(IpcChannels.ACCOUNT_SIGN_IN_SUCCESS, (_, accountState) => {
+      handler(accountState)
+    })
+  },
+
+  /**
+   * @param {(errorMessage: string) => void} handler
+   */
+  handleYouTubeAccountSignInError: (handler) => {
+    ipcRenderer.on(IpcChannels.ACCOUNT_SIGN_IN_ERROR, (_, errorMessage) => {
+      handler(errorMessage)
+    })
+  },
+
   chooseDefaultFolder: () => {
     ipcRenderer.send(IpcChannels.CHOOSE_DEFAULT_FOLDER)
   },

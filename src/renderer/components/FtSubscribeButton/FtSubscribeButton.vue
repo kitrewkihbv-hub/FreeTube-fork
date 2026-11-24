@@ -237,6 +237,8 @@ function handleSubscription(profile) {
 
     showToast(t('Channel.Added channel to your subscriptions'))
     emit('subscribed')
+
+    syncSubscriptionToYouTubeAccount(true)
   }
 
   if (isProfileDropdownEnabled.value && props.openDropdownOnSubscribe && !isProfileDropdownOpen.value) {
@@ -296,6 +298,25 @@ function handleUnsubscription(profile) {
   if (profile._id === MAIN_PROFILE_ID && profileIds.length > 1) {
     showToast(t('Channel.Removed subscription from {count} other channel(s)', { count: profileIds.length - 1 }))
   }
+
+  syncSubscriptionToYouTubeAccount(false)
+}
+
+/**
+ * Keeps the subscriptions of the signed in YouTube account in sync with FreeTube's own subscriptions
+ * @param {boolean} subscribed
+ */
+function syncSubscriptionToYouTubeAccount(subscribed) {
+  if (!store.getters.getSignInSyncToYouTube) {
+    return
+  }
+
+  store.dispatch('setYouTubeAccountSubscription', {
+    channelId: props.channelId,
+    subscribed
+  }).catch(() => {
+    showToast(t('Channel.Failed to sync the subscription with YouTube'))
+  })
 }
 
 /**

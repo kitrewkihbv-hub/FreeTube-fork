@@ -43,3 +43,20 @@
     inline-size: 90%;
   }
 }
+
+.accountFeed {
+  inline-size: 100%;
+}
+
+.accountFeedHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-block-end: 10px;
+}
+
+.accountFeedInfo {
+  color: var(--tertiary-text-color);
+  margin-block: 10px;
+}

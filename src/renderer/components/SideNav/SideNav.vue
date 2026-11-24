@@ -161,6 +161,37 @@
         </p>
       </router-link>
       <router-link
+        v-if="isSignedInToYouTubeAccount"
+        class="navOption mobileShow accountNavOption"
+        role="button"
+        to="/settings"
+        :title="youTubeAccountName"
+      >
+        <div class="thumbnailContainer">
+          <img
+            v-if="youTubeAccountThumbnail"
+            class="channelThumbnail"
+            height="35"
+            width="35"
+            :src="youTubeAccountThumbnail"
+            :alt="isOpen ? '' : youTubeAccountName"
+          >
+          <FontAwesomeIcon
+            v-else
+            class="navIcon accountNavIcon"
+            :class="applyNavIconExpand"
+            :icon="['fas', 'circle-user']"
+          />
+        </div>
+        <p
+          v-if="isOpen"
+          class="navLabel"
+          dir="auto"
+        >
+          {{ youTubeAccountName }}
+        </p>
+      </router-link>
+      <router-link
         class="navOption mobileHidden"
         role="button"
         to="/about"
@@ -352,6 +383,15 @@ const settingsTitle = computed(() => {
 })
 
 const enableChannelLinks = computed(() => !store.getters.getDisableChannelLinks)
+
+/** @type {import('vue').ComputedRef<boolean>} */
+const isSignedInToYouTubeAccount = computed(() => store.getters.getIsSignedInToYouTubeAccount)
+
+const youTubeAccountName = computed(() => {
+  return store.getters.getYouTubeAccount.name || t('Settings.Account Settings.Signed In')
+})
+
+const youTubeAccountThumbnail = computed(() => store.getters.getYouTubeAccount.thumbnail)
 </script>
 
 <style scoped src="./SideNav.css" />

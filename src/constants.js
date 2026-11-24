@@ -45,6 +45,16 @@ const IpcChannels = {
 
   GENERATE_PO_TOKEN: 'generate-po-token',
 
+  ACCOUNT_GET_STATE: 'account-get-state',
+  ACCOUNT_GET_TOKENS: 'account-get-tokens',
+  ACCOUNT_UPDATE_TOKENS: 'account-update-tokens',
+  ACCOUNT_SIGN_IN: 'account-sign-in',
+  ACCOUNT_CANCEL_SIGN_IN: 'account-cancel-sign-in',
+  ACCOUNT_SIGN_IN_SUCCESS: 'account-sign-in-success',
+  ACCOUNT_SIGN_IN_ERROR: 'account-sign-in-error',
+  ACCOUNT_SIGN_OUT: 'account-sign-out',
+  ACCOUNT_UPDATE: 'account-update',
+
   CHOOSE_DEFAULT_FOLDER: 'choose-default-folder',
   WRITE_TO_DEFAULT_FOLDER: 'write-to-default-folder',
 
