@@ -1363,5 +1363,15 @@ KeyboardShortcutPrompt:
 MacTube: MacTube
 
 Theme Quick Switch:
+  Choose Colors: Choose color themes
   Use Light: Switch to light theme
   Use Dark: Switch to dark theme
+
+Discovery:
+  Discover: Discover
+  Live: Live
+  Discover Info: Recommendations from YouTube. Refresh for a different mix; some videos may repeat.
+  Live Info: Live streams from across YouTube. Availability can change at any time.
+  Refresh: Refresh
+  Loading: Refreshing videos…
+  Error: Could not load videos from YouTube. Check your connection and try Refresh again.

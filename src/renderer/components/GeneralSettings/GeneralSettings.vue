@@ -303,6 +303,7 @@ const hideTrendingVideos = computed(() => store.getters.getHideTrendingVideos)
 
 const INCLUDED_DEFAULT_PAGE_NAMES = [
   'subscriptions',
+  ...(process.env.SUPPORTS_LOCAL_API ? ['discover', 'live'] : []),
   'subscribedChannels',
   'popular',
   'userPlaylists',
@@ -337,11 +338,11 @@ const defaultPageValues = computed(() => {
   return defaultPages.value.map((route) => route.path.slice(1))
 })
 
-/** @type {import('vue').ComputedRef<'subscriptions' | 'subscribedChannels' | 'popular' | 'userPlaylists' | 'history' | 'settings' | 'about' | 'trending'>} */
+/** @type {import('vue').ComputedRef<'subscriptions' | 'discover' | 'live' | 'subscribedChannels' | 'popular' | 'userPlaylists' | 'history' | 'settings' | 'about' | 'trending'>} */
 const landingPage = computed(() => store.getters.getLandingPage)
 
 /**
- * @param {'subscriptions' | 'subscribedChannels' | 'popular' | 'userPlaylists' | 'history' | 'settings' | 'about' | 'trending'} value
+ * @param {'subscriptions' | 'discover' | 'live' | 'subscribedChannels' | 'popular' | 'userPlaylists' | 'history' | 'settings' | 'about' | 'trending'} value
  */
 function updateLandingPage(value) {
   store.dispatch('updateLandingPage', value)

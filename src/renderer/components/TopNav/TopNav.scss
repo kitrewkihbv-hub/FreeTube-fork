@@ -295,8 +295,6 @@
 
 .themeButton {
   font-size: 17px;
-
-  @media only screen and (width <= 500px) {
-    display: none;
-  }
+  line-height: 1;
+  text-decoration: none;
 }

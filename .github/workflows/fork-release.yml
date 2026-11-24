@@ -106,23 +106,12 @@ jobs:
           Build of the `arena/64591193-freetube-with-account` branch, from Build run ${{ steps.target.outputs.run_id }}.
 
           Changes in this build:
-          - Fixes account restoration timing and makes sign-in storage writes safer.
-          - Removes the music hub and adds a quick light/dark theme switch and a matching
-            Mac Dock icon. The Finder icon uses the light design.
-          - Tries the SmartTube-style TV subscription tabs when the channel list is unavailable;
-            imports are still partial if YouTube does not provide a full list.
-          - Choose the YouTube subscription feed or the local feed; imports can be retried
-            separately in Account settings and partial subscription imports are reported.
-          - Sign in with Google/YouTube using the SmartTube-compatible QR flow or the manual code.
-            Session tokens are encrypted with the OS keychain when Electron safeStorage supports it.
-          - Account status and Google sign-in are visible in the top-right navigation.
-          - Signing in imports YouTube subscriptions, recent watch history, custom playlists, Watch Later,
-            and liked videos into FreeTube locally. Existing local history and playlist items are preserved;
-            these imports do not write anything back to YouTube.
-          - Improves compatibility with TV browse response shapes when importing history and playlists.
-          - In the watch player, use the overflow menu near subtitles to change video size; the
-            setting also has a fine-control slider in Settings → Player.
-          - The video title is no longer drawn over the video when it is zoomed into fullscreen.
+          - Adds Discover recommendations and a YouTube-wide Live page, separate from subscriptions.
+          - Refresh mixes available recommendations and continues through YouTube's feed when possible.
+          - The palette opens color theme settings; a separate button switches light and dark.
+          - Subscription feed refresh and selection persist, and the picture control adjusts width and height independently.
+          - Account imports and subscription synchronization depend on what YouTube returns and can be partial.
+          - This build was scanned with ClamAV, which cannot guarantee that software is safe.
 
           Install on macOS: open the `.dmg` and drag MacTube to Applications.
           MacTube keeps the existing FreeTube data directory to preserve your local library.

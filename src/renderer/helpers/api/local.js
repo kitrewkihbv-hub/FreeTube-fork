@@ -21,6 +21,7 @@ import {
 } from './youtubeAccountRawFeed'
 import { getYouTubeAccountSubscriptionTabs } from './youtubeAccountSubscriptions'
 import { loadAccountActivity } from './youtubeAccountActivity'
+import { hasLiveBadge } from './discoveryFeed'
 
 const TRACKING_PARAM_NAMES = [
   'utm_source',
@@ -974,6 +975,7 @@ function getYouTubeAccountVideoFallback(item) {
       author,
       authorId: typeof authorId === 'string' ? authorId : null,
       thumbnail,
+      liveNow: hasLiveBadge(source),
       lengthSeconds: Number.isFinite(parsedLengthSeconds) ? parsedLengthSeconds : ''
     }
   } catch (error) {
@@ -1797,6 +1799,63 @@ export function parseYouTubeAccountFeedItems(items) {
     return getYouTubeAccountVideoFallback(item)
   }).filter(item => item?.type === 'video' && item.videoId)
 }
+/**
+ * Open YouTube's home or Live browse page. Prefer the signed-in TV client when
+ * available; use a fresh public client if the account response cannot be read.
+ * Live search is a last resort if the Live browse page is unavailable.
+ * @param {'discover'|'live'} kind
+ * @param {boolean} safetyMode
+ */
+export async function openDiscoveryFeed(kind, safetyMode = false) {
+  if (!['discover', 'live'].includes(kind)) throw new Error('Unknown discovery feed')
+  const browseId = kind === 'live' ? 'FEtopics_live' : 'FEwhat_to_watch'
+  const errors = []
+  const clients = [
+    ...(!safetyMode ? [() => getYouTubeAccountInnertube()] : []),
+    () => createInnertube({ clientType: ClientType.TV, userAgent: TV_CLIENT_USER_AGENT, safetyMode }),
+    () => createInnertube({ clientType: ClientType.WEB, safetyMode }),
+  ]
+
+  const wrap = feed => ({
+    videos: parseYouTubeAccountFeedItems(getYouTubeAccountHistoryVideos(feed))
+      .filter(video => kind !== 'live' || video.liveNow === true),
+    has_continuation: Boolean(feed?.has_continuation),
+    async getContinuation() {
+      return wrap(await feed.getContinuation())
+    }
+  })
+
+  for (const getClient of clients) {
+    try {
+      const client = await getClient()
+      if (!client) continue
+      const response = await client.actions.execute('/browse', { browseId })
+      const raw = createYouTubeAccountRawFeed(response, client.actions)
+      let feed = wrap(raw)
+      if (!feed.videos.length) {
+        // Web clients may have parsed renderers that raw TV extraction does not know.
+        try { feed = wrap(new Mixins.Feed(client.actions, response)) } catch (error) { errors.push(error) }
+      }
+      if (!feed.videos.length && feed.has_continuation) feed = await feed.getContinuation()
+      if (feed.videos.length) return feed
+    } catch (error) {
+      errors.push(error)
+      console.warn('Could not open a YouTube discovery feed', error)
+    }
+  }
+
+  if (kind === 'live') {
+    try {
+      const result = await getLocalSearchResults('live', { type: 'video', features: ['live'] }, safetyMode)
+      const videos = result.results.filter(video => video.type === 'video' && video.liveNow === true)
+      if (videos.length) return { videos, has_continuation: false }
+    } catch (error) {
+      errors.push(error)
+    }
+  }
+  throw new Error('Unable to load YouTube discovery videos.', { cause: errors.at(-1) })
+}
+
 // #endregion YouTube account
 
 /**

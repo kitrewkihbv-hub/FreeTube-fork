@@ -1,5 +1,6 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import Subscriptions from '../views/Subscriptions/Subscriptions.vue'
+import Discovery from '../views/Discovery/Discovery.vue'
 import SubscribedChannels from '../views/SubscribedChannels/SubscribedChannels.vue'
 import ProfileSettings from '../views/ProfileSettings/ProfileSettings.vue'
 import Trending from '../views/Trending/Trending.vue'
@@ -27,6 +28,12 @@ const router = createRouter({
       },
       component: Subscriptions
     },
+    ...(process.env.SUPPORTS_LOCAL_API
+      ? [
+          { path: '/discover', name: 'discover', meta: { title: 'Discover' }, component: Discovery, props: { kind: 'discover' } },
+          { path: '/live', name: 'live', meta: { title: 'Live' }, component: Discovery, props: { kind: 'live' } },
+        ]
+      : []),
     {
       path: '/subscriptions',
       name: 'subscriptions',

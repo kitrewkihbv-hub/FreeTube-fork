@@ -3,6 +3,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const vm = require('node:vm')
 const rawSource = fs.readFileSync('src/renderer/helpers/api/youtubeAccountRawFeed.js', 'utf8').replaceAll('export function', 'function')
+const discoverySource = fs.readFileSync('src/renderer/helpers/api/discoveryFeed.js', 'utf8').replaceAll('export function', 'function')
 const activity = fs.readFileSync('src/renderer/helpers/api/youtubeAccountActivity.js', 'utf8').replace('export async function', 'async function')
 const local = fs.readFileSync('src/renderer/helpers/api/local.js', 'utf8')
 function extract(startText, endText) {
@@ -23,7 +24,7 @@ const tile = { tileRenderer: { contentId: 'video123', contentType: 'TILE_CONTENT
 const response = { contents: { tvBrowseRenderer: { content: { tvSurfaceContentRenderer: { content: { gridRenderer: { items: [tile] } } } } } } }
 function setup(tv, web, subscriptions = async () => { throw Error('no subscriptions') }, channelVideos = async () => {}) {
   const context = vm.createContext({ getYouTubeAccountInnertube: async () => tv, getYouTubeAccountWebInnertube: async () => web, getYouTubeAccountSubscriptions: subscriptions, getLocalChannelVideos: channelVideos, console: { warn() {} }, Utils: { timeToSeconds: () => 0 }, parseListItem: item => { if (item.bad) throw new Error('bad item'); return item }, Error })
-  vm.runInContext(`${rawSource}\n${activity}\n${functions}`, context)
+  vm.runInContext(`${rawSource}\n${discoverySource}\n${activity}\n${functions}`, context)
   return () => vm.runInContext('getYouTubeAccountActivityFeed()', context)
 }
 const emptyClient = { getSubscriptionsFeed: async () => ({ videos: [] }), actions: { execute: async () => ({}) } }

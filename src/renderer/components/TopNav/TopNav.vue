@@ -119,13 +119,21 @@
       </div>
     </div>
     <div class="side profiles">
+      <RouterLink
+        class="navButton themeButton"
+        :to="{ path: '/settings', query: { section: 'theme' } }"
+        :title="t('Theme Quick Switch.Choose Colors')"
+        :aria-label="t('Theme Quick Switch.Choose Colors')"
+      >
+        <FontAwesomeIcon :icon="['fas', 'palette']" />
+      </RouterLink>
       <button
         class="navButton themeButton"
         :title="themeSwitchLabel"
         :aria-label="themeSwitchLabel"
         @click="toggleTheme"
       >
-        <FontAwesomeIcon :icon="['fas', 'palette']" />
+        <FontAwesomeIcon :icon="['fas', isDarkTheme ? 'sun' : 'moon']" />
       </button>
       <RouterLink
         v-if="USING_ELECTRON"

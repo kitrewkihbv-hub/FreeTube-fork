@@ -10,3 +10,9 @@ Review date: 2026-11-24. This is not a complete security audit or a guarantee of
 - The rebrand keeps the existing FreeTube data directory in packaged builds; installing side by side therefore shares the same data. Back up your library before upgrading. macOS Keychain behavior and an upgrade from the previous app have not been tested on a Mac; signing in again may be necessary.
 
 Validation includes mocked subscription pagination, fallback and failures (`node tests/youtube-account-subscriptions.cjs`), project lint, and production webpack packs. These tests do not establish live authenticated subscription completeness, macOS installer behavior, or playback against YouTube.
+
+### Discover and Live update
+
+Discover requests YouTube's home browse (`FEwhat_to_watch`) and advances through continuations on refresh, mixing and deduplicating available videos. It prefers a signed-in TV feed when available, otherwise public TV and web feeds. Results can repeat and YouTube may limit or change its responses. Live uses YouTube's `FEtopics_live` browse and only displays items marked live, falling back to a live-filtered search. A private/restricted-mode session uses public requests rather than signed-in recommendations. Subscriptions remain a separate feed; neither discovery feed mutates subscriptions. The palette links to the existing color theme settings, with a separate light/dark button. Both pages can be selected as a startup tab.
+
+Mocked feed/continuation/fallback tests, existing account and player regressions, lint, and production packaging were run locally. YouTube-wide Live, authenticated recommendations, and the Mac application have not been manually tested against a live account or on macOS; YouTube availability and formats can change. ClamAV and a production dependency audit are useful checks but do not establish that an installer is safe. Builds are ad-hoc signed and not notarized.
