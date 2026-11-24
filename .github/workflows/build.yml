@@ -58,11 +58,11 @@ jobs:
         - runtime: linux-arm64
           os: ubuntu-latest
 
+        # The default macOS runner pool can be saturated. The Intel runners
+        # can build both targets; electron-builder explicitly selects the arch.
         - runtime: osx-x64
-          os: macOS-latest
+          os: macos-15-intel
 
-        # Build the arm64 app on an Intel macOS runner when the default arm64
-        # runner pool is saturated. electron-builder selects arm64 explicitly.
         - runtime: osx-arm64
           os: macos-15-intel
 
