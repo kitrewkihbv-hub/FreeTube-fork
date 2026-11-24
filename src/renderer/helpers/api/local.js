@@ -419,6 +419,12 @@ let accountTokens = null
 /** @type {Innertube | null} */
 let accountInnertube = null
 
+/** @type {Innertube | null} */
+let accountWebInnertube = null
+
+/** @type {Promise<Innertube> | null} */
+let accountWebInnertubePromise = null
+
 /**
  * The account tokens are periodically refreshed by YouTube,
  * so we need to make sure that the main process has the newest ones.
@@ -453,6 +459,8 @@ async function getAccountTokens() {
 export function clearYouTubeAccountSession() {
   accountTokens = null
   accountInnertube = null
+  accountWebInnertube = null
+  accountWebInnertubePromise = null
 }
 
 /**
@@ -494,6 +502,50 @@ export async function getYouTubeAccountInnertube() {
   }
 
   return accountInnertube
+}
+
+/**
+ * Creates a signed-in WEB client for account-library reads when the TV client returns
+ * empty or incomplete history and playlist responses. OAuth tokens are shared between
+ * InnerTube clients; account mutations continue to use the TV client explicitly.
+ *
+ * @returns {Promise<Innertube>}
+ */
+async function getYouTubeAccountWebInnertube() {
+  const tokens = await getAccountTokens()
+
+  if (tokens === null) {
+    throw new Error('You must be signed in to your YouTube account.')
+  }
+
+  if (accountWebInnertube !== null) {
+    return accountWebInnertube
+  }
+
+  if (accountWebInnertubePromise === null) {
+    accountWebInnertubePromise = (async () => {
+      const innertube = await createInnertube({ clientType: ClientType.WEB })
+
+      innertube.session.on('update-credentials', ({ credentials }) => {
+        saveAccountTokens({ ...accountTokens, ...credentials })
+      })
+
+      await innertube.session.signIn(tokens)
+
+      if (!innertube.session.logged_in) {
+        throw new Error('YouTube did not authenticate the saved account tokens with its WEB client.')
+      }
+
+      return innertube
+    })()
+  }
+
+  try {
+    accountWebInnertube = await accountWebInnertubePromise
+    return accountWebInnertube
+  } finally {
+    accountWebInnertubePromise = null
+  }
 }
 
 /**
@@ -763,6 +815,92 @@ function getYouTubeAccountLibraryShelf(library, sectionName, titleAliases, feedT
 }
 
 /**
+ * Finds watch-history data for a single authenticated InnerTube client.
+ * @param {Innertube} innertube
+ * @param {string} clientLabel
+ * @returns {Promise<{ feed: object|undefined, truncated: boolean, error: unknown, usesHistoryTimestamps: boolean }>}
+ */
+async function getYouTubeAccountHistoryFeed(innertube, clientLabel) {
+  let historyFeed
+  let historyFeedError
+  let historyTruncated = false
+  let usesHistoryTimestamps = true
+
+  try {
+    historyFeed = await innertube.getHistory()
+  } catch (error) {
+    historyFeedError = error
+    console.warn(`failed to retrieve YouTube history with the ${clientLabel} client; trying its Library history shelf`, error)
+  }
+
+  if (!historyFeed || (!historyFeed.videos?.length && !historyFeed.has_continuation)) {
+    try {
+      const library = await innertube.getLibrary()
+      const historyShelf = getYouTubeAccountLibraryShelf(library, 'history', ['history', 'watch history'], 'history')
+      let libraryHistoryFeed
+
+      if (historyShelf?.getAll) {
+        try {
+          libraryHistoryFeed = await historyShelf.getAll()
+        } catch (error) {
+          historyTruncated = true
+          historyFeedError ??= error
+          console.warn(`failed to open the full YouTube Library history shelf with the ${clientLabel} client`, error)
+        }
+      }
+
+      if (libraryHistoryFeed?.videos?.length > 0 || libraryHistoryFeed?.has_continuation) {
+        historyFeed = libraryHistoryFeed
+        usesHistoryTimestamps = true
+      } else if (historyShelf?.contents?.length > 0 && (!historyFeed || !historyFeed.videos?.length)) {
+        // Some YouTube clients expose the recent history items on the Library shelf
+        // but omit the shelf's "show all" button. Keep those visible recent items.
+        // The visible shelf is only a preview, so report this as a partial import.
+        historyFeed = {
+          videos: historyShelf.contents,
+          has_continuation: false
+        }
+        historyTruncated = true
+        usesHistoryTimestamps = true
+      } else if (!historyFeed && libraryHistoryFeed) {
+        historyFeed = libraryHistoryFeed
+        usesHistoryTimestamps = true
+      }
+    } catch (error) {
+      historyFeedError ??= error
+      console.warn(`failed to retrieve YouTube history from the Library shelf with the ${clientLabel} client`, error)
+    }
+  }
+
+  // Some YouTube client responses leave FEhistory and the Library shelf empty even
+  // when the account has history. YouTube also exposes that data as the HL playlist.
+  if (!historyFeed || !historyFeed.videos?.length || historyTruncated) {
+    try {
+      const historyPlaylistFeed = await innertube.getPlaylist('HL')
+
+      if (historyPlaylistFeed.videos?.length > 0 || historyPlaylistFeed.has_continuation) {
+        historyFeed = historyPlaylistFeed
+        historyTruncated = false
+        usesHistoryTimestamps = false
+      } else if (!historyFeed) {
+        historyFeed = historyPlaylistFeed
+        usesHistoryTimestamps = false
+      }
+    } catch (error) {
+      historyFeedError ??= error
+      console.warn(`failed to retrieve YouTube watch history from its HL playlist with the ${clientLabel} client`, error)
+    }
+  }
+
+  return {
+    feed: historyFeed,
+    truncated: historyTruncated,
+    error: historyFeedError,
+    usesHistoryTimestamps
+  }
+}
+
+/**
  * Imports recent videos from the signed-in YouTube account's watch history.
  * This reads YouTube's history and does not upload FreeTube's local history.
  *
@@ -778,48 +916,36 @@ export async function getYouTubeAccountHistory() {
     throw new Error('You must be signed in to your YouTube account.')
   }
 
-  let historyFeed
-  let historyFeedError
-  let historyTruncated = false
+  let {
+    feed: historyFeed,
+    truncated: historyTruncated,
+    error: historyFeedError,
+    usesHistoryTimestamps
+  } = await getYouTubeAccountHistoryFeed(innertube, 'TV')
 
-  try {
-    historyFeed = await innertube.getHistory()
-  } catch (error) {
-    historyFeedError = error
-    console.warn('failed to retrieve YouTube history directly; trying the Library history shelf', error)
-  }
-
-  if (!historyFeed || (!historyFeed.videos?.length && !historyFeed.has_continuation)) {
+  // The TV client is used for OAuth and account mutations, but some signed-in TV
+  // responses omit account library contents that are present on YouTube's WEB client.
+  // Retry only empty or already-incomplete results; keep the normal sync to one client.
+  if (!historyFeed?.videos?.length || historyTruncated) {
     try {
-      const library = await innertube.getLibrary()
-      const historyShelf = getYouTubeAccountLibraryShelf(library, 'history', ['history', 'watch history'], 'history')
-      let libraryHistoryFeed
+      const webInnertube = await getYouTubeAccountWebInnertube()
+      const webHistory = await getYouTubeAccountHistoryFeed(webInnertube, 'WEB')
+      const webFeedHasData = webHistory.feed?.videos?.length > 0 || webHistory.feed?.has_continuation
 
-      if (historyShelf?.getAll) {
-        try {
-          libraryHistoryFeed = await historyShelf.getAll()
-        } catch (error) {
-          historyTruncated = true
-          console.warn('failed to open the full YouTube Library history shelf', error)
-        }
+      if (webFeedHasData) {
+        historyFeed = webHistory.feed
+        historyTruncated = webHistory.truncated
+        usesHistoryTimestamps = webHistory.usesHistoryTimestamps
+      } else if (!historyFeed && webHistory.feed) {
+        historyFeed = webHistory.feed
+        historyTruncated = webHistory.truncated
+        usesHistoryTimestamps = webHistory.usesHistoryTimestamps
       }
 
-      if (libraryHistoryFeed?.videos?.length > 0 || libraryHistoryFeed?.has_continuation) {
-        historyFeed = libraryHistoryFeed
-      } else if (historyShelf?.contents?.length > 0 && (!historyFeed || !historyFeed.videos?.length)) {
-        // Some YouTube clients expose the recent history items on the Library shelf
-        // but omit the shelf's "show all" button. Keep those visible recent items.
-        // The visible shelf is only a preview, so report this as a partial import.
-        historyFeed = {
-          videos: historyShelf.contents,
-          has_continuation: false
-        }
-        historyTruncated = true
-      } else if (!historyFeed && libraryHistoryFeed) {
-        historyFeed = libraryHistoryFeed
-      }
+      historyFeedError ??= webHistory.error
     } catch (error) {
-      console.warn('failed to retrieve YouTube history from the Library shelf', error)
+      historyFeedError ??= error
+      console.warn('failed to retry YouTube watch history with the WEB client', error)
     }
   }
 
@@ -861,7 +987,9 @@ export async function getYouTubeAccountHistory() {
         continue
       }
 
-      const watchedAt = parseYouTubeAccountHistoryTime(video.published?.text)
+      const watchedAt = usesHistoryTimestamps
+        ? parseYouTubeAccountHistoryTime(video.published?.text)
+        : undefined
 
       historyByVideoId.set(videoData.videoId, {
         ...videoData,
@@ -932,6 +1060,10 @@ export async function getYouTubeAccountPlaylists() {
   const playlists = []
   const sourceErrors = []
   let playlistIndexSucceeded = false
+  let playlistIndexFailed = false
+  let libraryFailed = false
+  let playlistInnertube = innertube
+  let webPlaylistInnertube = null
   let truncated = false
   let failedPlaylistCount = 0
   let remainingContentPages = YOUTUBE_ACCOUNT_PLAYLIST_CONTENT_PAGES_TO_FETCH
@@ -996,7 +1128,7 @@ export async function getYouTubeAccountPlaylists() {
     }
   } catch (error) {
     sourceErrors.push(error)
-    truncated = true
+    playlistIndexFailed = true
     console.warn('failed to retrieve YouTube playlist index; trying the Library shelf', error)
   }
 
@@ -1012,8 +1144,90 @@ export async function getYouTubeAccountPlaylists() {
     }
   } catch (error) {
     sourceErrors.push(error)
-    truncated = true
+    libraryFailed = true
     console.warn('failed to retrieve the YouTube Library while syncing playlists', error)
+  }
+
+  // If the TV client returned no playlist summaries or one of its account-library
+  // reads failed, retry the index and shelves with the WEB client before reporting an
+  // empty account. Keep the TV result when it already contains usable playlist data.
+  if (playlistSummaries.size === 0 || playlistIndexFailed || libraryFailed) {
+    try {
+      webPlaylistInnertube = await getYouTubeAccountWebInnertube()
+      let webIndexSucceeded = false
+      let webLibrarySucceeded = false
+
+      try {
+        let feed = await webPlaylistInnertube.getPlaylists()
+        webIndexSucceeded = true
+        playlistIndexSucceeded = true
+        playlistIndexFailed = false
+
+        for (let page = 0; page < YOUTUBE_ACCOUNT_PLAYLIST_INDEX_PAGES_TO_FETCH; page++) {
+          for (const playlist of feed.playlists ?? []) {
+            addPlaylistSummary(playlist)
+          }
+
+          if (!feed.has_continuation) {
+            break
+          }
+
+          if (page === YOUTUBE_ACCOUNT_PLAYLIST_INDEX_PAGES_TO_FETCH - 1) {
+            truncated = true
+            break
+          }
+
+          feed = await feed.getContinuation()
+        }
+      } catch (error) {
+        sourceErrors.push(error)
+        playlistIndexFailed = true
+        console.warn('failed to retrieve the YouTube playlist index with the WEB client', error)
+      }
+
+      try {
+        const webLibrary = await webPlaylistInnertube.getLibrary()
+        webLibrarySucceeded = true
+        libraryFailed = false
+        playlistIndexSucceeded = true
+
+        const webPlaylistsShelf = getYouTubeAccountLibraryShelf(webLibrary, 'playlists_section', ['playlists'])
+
+        for (const playlist of webPlaylistsShelf?.contents ?? []) {
+          addPlaylistSummary(playlist)
+        }
+
+        const hasTVPlaylistShelves = [
+          ['watch_later', ['watch later']],
+          ['liked_videos', ['liked videos', 'likes']],
+          ['playlists_section', ['playlists']]
+        ].some(([sectionName, titleAliases]) => getYouTubeAccountLibraryShelf(library, sectionName, titleAliases) !== undefined)
+
+        if (!hasTVPlaylistShelves) {
+          library = webLibrary
+        }
+      } catch (error) {
+        sourceErrors.push(error)
+        libraryFailed = true
+        console.warn('failed to retrieve the YouTube Library with the WEB client', error)
+      }
+
+      if (webIndexSucceeded || webLibrarySucceeded) {
+        playlistInnertube = webPlaylistInnertube
+      }
+
+      if (playlistSummaries.size === 0 && (!webIndexSucceeded || !webLibrarySucceeded)) {
+        truncated = true
+      }
+    } catch (error) {
+      sourceErrors.push(error)
+      truncated = true
+      console.warn('failed to create the YouTube WEB client while syncing playlists', error)
+    }
+  }
+
+  if (playlistIndexFailed || libraryFailed) {
+    truncated = true
   }
 
   if (!playlistIndexSucceeded) {
@@ -1094,11 +1308,48 @@ export async function getYouTubeAccountPlaylists() {
     return videos
   }
 
+  const hasPlaylistFeedData = (feed) => Boolean(feed?.items?.length || feed?.videos?.length || feed?.has_continuation)
+
+  const getAlternatePlaylistFeed = async (playlistId) => {
+    if (playlistInnertube === innertube) {
+      webPlaylistInnertube ??= await getYouTubeAccountWebInnertube()
+
+      if (playlistInnertube === webPlaylistInnertube) {
+        return undefined
+      }
+
+      return await webPlaylistInnertube.getPlaylist(playlistId)
+    }
+
+    return await innertube.getPlaylist(playlistId)
+  }
+
   const customPlaylistSummaries = Array.from(playlistSummaries.values()).slice(0, YOUTUBE_ACCOUNT_PLAYLISTS_TO_FETCH)
 
   for (const [index, summary] of customPlaylistSummaries.entries()) {
+    let playlistFeed
+    let playlistFetchError
+
     try {
-      const playlistFeed = await innertube.getPlaylist(summary.id)
+      playlistFeed = await playlistInnertube.getPlaylist(summary.id)
+    } catch (error) {
+      playlistFetchError = error
+    }
+
+    if (!hasPlaylistFeedData(playlistFeed)) {
+      try {
+        const alternatePlaylistFeed = await getAlternatePlaylistFeed(summary.id)
+
+        if (hasPlaylistFeedData(alternatePlaylistFeed) || (!playlistFeed && alternatePlaylistFeed)) {
+          playlistFeed = alternatePlaylistFeed
+          playlistFetchError = undefined
+        }
+      } catch (error) {
+        playlistFetchError ??= error
+      }
+    }
+
+    if (playlistFeed) {
       const videos = await readPlaylistVideos(playlistFeed, summary.firstVideos)
       const title = playlistFeed.info?.title ?? summary.title
 
@@ -1108,8 +1359,8 @@ export async function getYouTubeAccountPlaylists() {
         description: playlistFeed.info?.description ?? '',
         videos
       })
-    } catch (error) {
-      console.warn(`failed to retrieve YouTube playlist ${summary.id}`, error)
+    } else {
+      console.warn(`failed to retrieve YouTube playlist ${summary.id}`, playlistFetchError)
 
       const videos = await readPlaylistVideos(null, summary.firstVideos)
 
@@ -1125,7 +1376,7 @@ export async function getYouTubeAccountPlaylists() {
       // Avoid making an import of many playlists look completely successful when
       // YouTube denied access to one or more of them.
       failedPlaylistCount++
-      sourceErrors.push(error)
+      sourceErrors.push(playlistFetchError)
     }
 
     if (remainingContentPages <= YOUTUBE_ACCOUNT_SYSTEM_PLAYLIST_CONTENT_PAGE_RESERVE) {
@@ -1145,16 +1396,34 @@ export async function getYouTubeAccountPlaylists() {
     // stable Watch Later / Liked playlist IDs directly first, then use the Library
     // shelf's "show all" endpoint and visible items as fallbacks.
     try {
-      playlistFeed = await innertube.getPlaylist(playlistId)
+      playlistFeed = await playlistInnertube.getPlaylist(playlistId)
     } catch (error) {
       playlistFetchError = error
     }
 
-    if (!playlistFeed && shelf?.getAll) {
+    if (!hasPlaylistFeedData(playlistFeed) && shelf?.getAll) {
       try {
-        playlistFeed = await shelf.getAll()
+        const shelfFeed = await shelf.getAll()
+
+        if (hasPlaylistFeedData(shelfFeed) || (!playlistFeed && shelfFeed)) {
+          playlistFeed = shelfFeed
+          playlistFetchError = undefined
+        }
       } catch (error) {
         playlistFetchError = error
+      }
+    }
+
+    if (!hasPlaylistFeedData(playlistFeed)) {
+      try {
+        const alternatePlaylistFeed = await getAlternatePlaylistFeed(playlistId)
+
+        if (hasPlaylistFeedData(alternatePlaylistFeed) || (!playlistFeed && alternatePlaylistFeed)) {
+          playlistFeed = alternatePlaylistFeed
+          playlistFetchError = undefined
+        }
+      } catch (error) {
+        playlistFetchError ??= error
       }
     }
 
@@ -1192,6 +1461,12 @@ export async function getYouTubeAccountPlaylists() {
     playlistName: 'Favorites',
     reservedPages: 0
   })
+
+  if (playlistSummaries.size === 0 && playlists.every(playlist => playlist.videos.length === 0)) {
+    // Two empty system-list wrappers are not evidence that the account playlist data
+    // was actually returned. Surface a zero-data result as partial instead of success.
+    truncated = true
+  }
 
   return { playlists, truncated, failedPlaylistCount }
 }
