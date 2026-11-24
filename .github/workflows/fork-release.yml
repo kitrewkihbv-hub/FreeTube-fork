@@ -20,6 +20,14 @@ on:
         required: true
         description: Tag of the release to create or update (e.g. mac-build-1)
 
+  # `workflow_dispatch` only works once this file is on the default branch, so the
+  # workflow is also triggered by touching the marker file. It contains the run ID
+  # on the first line and the release tag on the second.
+  push:
+    branches: [arena/64591193-freetube-with-account]
+    paths: [.release-trigger]
+
+
 cache-mode: none
 permissions: {}
 
@@ -34,6 +42,20 @@ jobs:
       actions: read
 
     steps:
+    - uses: actions/checkout@v4
+
+    - name: Read the build to publish
+      id: target
+      shell: bash
+      run: |
+        if [[ -n "${{ inputs.run_id }}" ]]; then
+          echo "run_id=${{ inputs.run_id }}" >> "$GITHUB_OUTPUT"
+          echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+        else
+          echo "run_id=$(sed -n 1p .release-trigger)" >> "$GITHUB_OUTPUT"
+          echo "tag=$(sed -n 2p .release-trigger)" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Download macOS artifacts
       uses: actions/download-artifact@v4
       with:
@@ -41,7 +63,7 @@ jobs:
         merge-multiple: true
         path: assets
         repository: ${{ github.repository }}
-        run-id: ${{ inputs.run_id }}
+        run-id: ${{ steps.target.outputs.run_id }}
         github-token: ${{ secrets.GITHUB_TOKEN }}
 
     # The .7z files are the same app folder as the .zip files, so they are not needed here
@@ -54,10 +76,10 @@ jobs:
     - name: Create release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: ${{ inputs.tag }}
-        name: FreeTube with account sign-in (${{ inputs.tag }})
+        tag_name: ${{ steps.target.outputs.tag }}
+        name: FreeTube with account sign-in (${{ steps.target.outputs.tag }})
         body: |
-          Build of the `arena/64591193-freetube-with-account` branch, from Build run ${{ inputs.run_id }}.
+          Build of the `arena/64591193-freetube-with-account` branch, from Build run ${{ steps.target.outputs.run_id }}.
 
           Changes in this build:
           - Sign in with a Google/YouTube account, using the same QR code sign in flow as SmartTube.
