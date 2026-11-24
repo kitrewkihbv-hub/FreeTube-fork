@@ -65,6 +65,64 @@ const actions = {
     }
   },
 
+  /**
+   * Merges recent YouTube watch-history entries into the local history without deleting
+   * or uploading any local entries.
+   * @param {object} context
+   * @param {Function} context.commit
+   * @param {object[]} importedRecords
+   * @returns {Promise<{ addedCount: number, updatedCount: number }>}
+   */
+  async mergeYouTubeAccountHistory({ commit }, importedRecords) {
+    const existingRecords = await DBHistoryHandlers.find()
+    const recordsById = new Map(existingRecords.map(record => [record.videoId, record]))
+    const recordsToUpsert = []
+    let addedCount = 0
+    let updatedCount = 0
+
+    for (const importedRecord of importedRecords) {
+      if (!importedRecord?.videoId) {
+        continue
+      }
+
+      const existingRecord = recordsById.get(importedRecord.videoId)
+
+      if (existingRecord === undefined) {
+        recordsById.set(importedRecord.videoId, importedRecord)
+        recordsToUpsert.push(importedRecord)
+        addedCount++
+        continue
+      }
+
+      const existingWatchTime = Number(existingRecord.timeWatched) || 0
+      const importedWatchTime = Number(importedRecord.timeWatched) || 0
+
+      if (importedWatchTime > existingWatchTime) {
+        const mergedRecord = {
+          ...importedRecord,
+          ...existingRecord,
+          timeWatched: importedWatchTime
+        }
+
+        recordsById.set(importedRecord.videoId, mergedRecord)
+        recordsToUpsert.push(mergedRecord)
+        updatedCount++
+      }
+    }
+
+    // Keep IPC and database writes in small batches instead of sending one huge request.
+    for (let index = 0; index < recordsToUpsert.length; index += 25) {
+      const batch = recordsToUpsert.slice(index, index + 25)
+      await Promise.all(batch.map(record => DBHistoryHandlers.upsert(record)))
+    }
+
+    const sortedRecords = Array.from(recordsById.values()).sort((a, b) => b.timeWatched - a.timeWatched)
+    commit('setHistoryCacheSorted', sortedRecords)
+    commit('setHistoryCacheById', Object.fromEntries(recordsById))
+
+    return { addedCount, updatedCount }
+  },
+
   async removeFromHistory({ commit }, videoId) {
     try {
       await DBHistoryHandlers.delete(videoId)

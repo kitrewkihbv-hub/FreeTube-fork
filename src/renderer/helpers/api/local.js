@@ -392,8 +392,11 @@ export async function getLocalTrending(location, tab) {
  * @property {{ client_id: string, client_secret: string }} [client]
  */
 
-/** How many continuation pages of the subscriptions feed are fetched when importing the subscriptions */
-const SUBSCRIPTIONS_FEED_PAGES_TO_FETCH = 5
+/** Maximum number of pages read from the subscribed-channels list */
+const CHANNELS_FEED_PAGES_TO_FETCH = 100
+
+/** Maximum number of recent YouTube watch-history pages fetched per sync */
+const YOUTUBE_ACCOUNT_HISTORY_PAGES_TO_FETCH = 20
 
 /** The user agent of the YouTube TV app, which is the client that the account tokens belong to */
 const TV_CLIENT_USER_AGENT = 'Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version'
@@ -546,79 +549,31 @@ export async function getYouTubeAccountSubscriptions() {
 
   /** @type {Map<string, { id: string, name: string, thumbnail: string }>} */
   const channels = new Map()
+  let channelsFeed = await innertube.getChannelsFeed()
 
-  const addChannel = (id, name, thumbnail) => {
-    if (id && name && !channels.has(id)) {
-      channels.set(id, { id, name, thumbnail: thumbnail ?? '' })
-    }
-  }
+  for (let page = 0; page < CHANNELS_FEED_PAGES_TO_FETCH; page++) {
+    for (const channel of channelsFeed.channels) {
+      const id = channel.id
+      const name = channel.author?.name
 
-  /** @param {import('youtubei.js').Mixins.Feed} feed */
-  const addFeedChannels = (feed) => {
-    for (const video of feed.videos) {
-      addChannel(
-        video.author?.id,
-        video.author?.name,
-        video.author?.best_thumbnail?.url
-      )
-    }
-  }
-
-  // The subscriptions feed lists the most recent uploads, so it only contains channels that uploaded recently.
-  // Fetching a few continuation pages makes it possible to find the less active channels too.
-  try {
-    let feed = await innertube.getSubscriptionsFeed()
-
-    addFeedChannels(feed)
-
-    for (let page = 0; page < SUBSCRIPTIONS_FEED_PAGES_TO_FETCH && feed.has_continuation; page++) {
-      feed = await feed.getContinuation()
-
-      addFeedChannels(feed)
-    }
-  } catch (error) {
-    console.error('failed to retrieve the subscriptions feed', error)
-  }
-
-  // The guide contains the channel list in the sidebar of YouTube, i.e. the channels the user actually subscribed to
-  try {
-    const guide = await innertube.getGuide()
-
-    for (const section of guide.contents ?? []) {
-      for (const entry of section.items ?? []) {
-        if (entry.type !== 'GuideEntry') {
-          continue
-        }
-
-        /** @type {import('youtubei.js').YTNodes.GuideEntry} */
-        const guideEntry = entry
-
-        addChannel(
-          guideEntry.endpoint?.payload?.browseId,
-          guideEntry.title?.text,
-          guideEntry.thumbnails?.at(-1)?.url
-        )
+      if (id && name && !channels.has(id)) {
+        channels.set(id, {
+          id,
+          name,
+          thumbnail: channel.author?.best_thumbnail?.url ?? ''
+        })
       }
     }
-  } catch (error) {
-    console.error('failed to retrieve the subscriptions guide', error)
-  }
 
-  // Fall back to the channels page when the guide only returned the "recently uploaded" channels
-  if (channels.size === 0) {
-    try {
-      const channelsFeed = await innertube.getChannelsFeed()
-
-      for (const channel of channelsFeed.channels) {
-        addChannel(
-          channel.id,
-          channel.author?.name,
-          channel.author?.best_thumbnail?.url
-        )
-      }
-    } catch (error) {
-      console.error('failed to retrieve the channels feed', error)
+    if (!channelsFeed.has_continuation) {
+      break
     }
+
+    if (page === CHANNELS_FEED_PAGES_TO_FETCH - 1) {
+      throw new Error(`The YouTube subscription list exceeded the ${CHANNELS_FEED_PAGES_TO_FETCH}-page import limit.`)
+    }
+
+    channelsFeed = await channelsFeed.getContinuation()
   }
 
   return Array.from(channels.values()).sort((a, b) => a.name.localeCompare(b.name))
@@ -660,6 +615,88 @@ export async function getYouTubeAccountActivityFeed() {
   const feed = await innertube.getSubscriptionsFeed()
 
   return parseYouTubeAccountFeedItems(feed.videos)
+}
+
+/**
+ * Imports recent videos from the signed-in YouTube account's watch history.
+ * This reads YouTube's history and does not upload FreeTube's local history.
+ *
+ * Each sync is capped to recent pages so a very large Google account does not
+ * stall app startup indefinitely.
+ *
+ * @returns {Promise<object[]>}
+ */
+export async function getYouTubeAccountHistory() {
+  const innertube = await getYouTubeAccountInnertube()
+
+  if (innertube === null) {
+    throw new Error('You must be signed in to your YouTube account.')
+  }
+
+  let historyFeed = await innertube.getHistory()
+  const historyByVideoId = new Map()
+  const fallbackTime = Date.now()
+
+  for (let page = 0; page < YOUTUBE_ACCOUNT_HISTORY_PAGES_TO_FETCH; page++) {
+    for (const video of historyFeed.videos) {
+      let videoData
+
+      try {
+        videoData = parseLocalListVideo(video)
+      } catch (error) {
+        console.warn('skipping a YouTube history item that could not be parsed', error)
+        continue
+      }
+
+      if (!videoData?.videoId || historyByVideoId.has(videoData.videoId)) {
+        continue
+      }
+
+      const watchedAt = parseYouTubeAccountHistoryTime(video.published?.text)
+
+      historyByVideoId.set(videoData.videoId, {
+        ...videoData,
+        // The history page's published text is the watch time, not the video's upload date.
+        published: undefined,
+        watchProgress: 0,
+        timeWatched: watchedAt ?? fallbackTime - historyByVideoId.size,
+        isLive: false,
+        isStation: false,
+        isPremiere: false,
+        type: 'video'
+      })
+    }
+
+    if (!historyFeed.has_continuation || page === YOUTUBE_ACCOUNT_HISTORY_PAGES_TO_FETCH - 1) {
+      break
+    }
+
+    historyFeed = await historyFeed.getContinuation()
+  }
+
+  return Array.from(historyByVideoId.values())
+}
+
+/**
+ * Converts a YouTube history row's relative or absolute timestamp to epoch milliseconds.
+ * @param {string|undefined} watchedText
+ * @returns {number|undefined}
+ */
+export function parseYouTubeAccountHistoryTime(watchedText) {
+  if (!watchedText) {
+    return undefined
+  }
+
+  const relativeText = watchedText.match(/\d+\s?(?:seconds?|s|minutes?|mins?|m|hours?|h|days?|d|weeks?|w|months?|mo|years?|y)\b/i)?.[0]
+
+  if (relativeText) {
+    return calculatePublishedDate(relativeText)
+  }
+
+  const dateText = watchedText.replace(/^(?:you\s+)?watched\s+(?:on\s+)?/i, '').trim()
+  const timestamp = Date.parse(dateText)
+
+  return Number.isFinite(timestamp) ? timestamp : undefined
 }
 
 /**

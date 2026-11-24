@@ -1,6 +1,7 @@
 import {
   clearYouTubeAccountSession,
   getYouTubeAccountActivityFeed,
+  getYouTubeAccountHistory,
   getYouTubeAccountInfo,
   getYouTubeAccountSubscriptions,
   setYouTubeAccountSubscription,
@@ -394,6 +395,35 @@ const actions = {
     } catch (error) {
       console.error('failed to change the subscription on YouTube', error)
       throw error
+    }
+  },
+
+  /**
+   * Imports recent YouTube watch history into FreeTube's local history.
+   * The import is skipped when the user has disabled local watch history.
+   * @param {object} context the Vuex action context
+   * @param {Function} context.commit
+   * @param {Function} context.dispatch
+   * @param {object} context.rootGetters
+   * @returns {Promise<{ addedCount: number, updatedCount: number, skipped?: boolean }>}
+   */
+  async syncYouTubeAccountHistory({ commit, dispatch, rootGetters }) {
+    if (!rootGetters.getRememberHistory) {
+      return { addedCount: 0, updatedCount: 0, skipped: true }
+    }
+
+    commit('setYouTubeAccountBusy', true)
+
+    try {
+      // Avoid racing the initial history preload, which could otherwise overwrite the
+      // imported records in the Vuex cache after the database merge has completed.
+      await dispatch('grabHistory', null, { root: true })
+
+      const history = await getYouTubeAccountHistory()
+
+      return await dispatch('mergeYouTubeAccountHistory', history, { root: true })
+    } finally {
+      commit('setYouTubeAccountBusy', false)
     }
   },
 

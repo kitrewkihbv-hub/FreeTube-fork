@@ -255,9 +255,10 @@ const state = {
   watchedProgressSavingMode: 'auto',
   saveVideoHistoryWithLastViewedPlaylist: true,
   showFamilyFriendlyOnly: false,
-  signInSyncSubscriptions: false,
+  signInSyncSubscriptions: true,
   signInSyncToYouTube: false,
-  useYouTubeAccountFeed: false,
+  useYouTubeAccountFeed: true,
+  accountDataSyncVersion: 0,
   sponsorBlockShowSkippedToast: true,
   sponsorBlockUrl: 'https://sponsor.ajay.app',
   sponsorBlockSponsor: {
@@ -470,6 +471,7 @@ export const NON_TRANSFERABLE_SETTINGS = new Set([
   'signInSyncSubscriptions',
   'signInSyncToYouTube',
   'useYouTubeAccountFeed',
+  'accountDataSyncVersion',
 ])
 
 const customState = {

@@ -290,9 +290,13 @@ Settings:
     Desktop Only: Signing in with a Google / YouTube account is only available in the
       desktop app.
     Signed In: Signed In
-    Signed In Toast: Signed in to your Google account
     Channel ID: 'Channel ID: {channelId}'
     Sign In: Sign In With Google
+    Top Nav Sign In: Sign In
+    Sync Account Data: Sync YouTube Data
+    Syncing Account Data: Syncing YouTube Data…
+    Sync Complete: 'YouTube sync finished. {channels} new channels were added and {videos} recent history videos were imported.'
+    Sync Partial: Signed in, but some YouTube data could not be synced. Tap Sync YouTube Data to retry.
     Sign In Title: Sign in to your Google account
     Sign In Instructions: Scan the QR code with your phone to sign in without typing
       anything, or enter the code below on any device to authorize FreeTube to access
@@ -321,13 +325,14 @@ Settings:
     Export Subscriptions: Subscribe on YouTube to Your Profile's Channels
     Subscriptions Exported: 'Subscribed to {count} channel(s) on YouTube'
     Subscriptions Export Error: Unable to subscribe to your channels on YouTube
-    Sync Subscriptions to the Active Profile: Import YouTube Subscriptions Into the
-      Active Profile on Sign In
+    Sync Subscriptions to the Active Profile: Automatically Sync YouTube Data on Startup
     Use Account Feed: Use YouTube Account Subscriptions Feed
     Sync Subscriptions to YouTube: Also Subscribe on YouTube
-    Disclaimer: Your session tokens are stored on this device only, encrypted with
-      your operating system's keychain whenever possible. FreeTube never sends them
-      anywhere and you can sign out at any time.
+    Disclaimer: Your sign-in tokens are stored on this device and encrypted with
+      your operating system's keychain whenever it is available. FreeTube sends them
+      directly to YouTube only when reading your account data; FreeTube's servers do
+      not receive them. YouTube watch history is imported locally, and FreeTube's
+      local watch history is never uploaded.
   General Settings:
     General Settings: General
     Check for Updates: Check for Updates
@@ -1192,8 +1197,9 @@ Tooltips:
     Hide Videos, Playlists and Channels Containing Text: Enter a word, word fragment, or phrase (case insensitive) to hide all videos, playlists and channels whose original titles contain it throughout all of FreeTube, excluding only History, Your Playlists, and videos inside of playlists.
     Hide Videos on Watch: 'Hides watched videos from the Videos, Shorts, and Live tabs on the Subscription and Channel pages. This does not affect the Home tab on Channel pages'
   Account Settings:
-    Sync Subscriptions to the Active Profile: After signing in, add the channels that
-      you are subscribed to on YouTube to the profile that is currently active.
+    Sync Subscriptions to the Active Profile: Automatically import your YouTube
+      subscriptions and recent watch history when FreeTube opens. This reads data from
+      YouTube; your local FreeTube watch history is never uploaded.
     Use Account Feed: Show the subscription feed from your YouTube account on the
       Subscriptions page instead of FreeTube's own subscription feed.
     Sync Subscriptions to YouTube: When you subscribe or unsubscribe in FreeTube,

@@ -52,6 +52,12 @@
         class="settingsFlexStart460px"
       >
         <FtButton
+          :label="busy ? $t('Settings.Account Settings.Syncing Account Data') : $t('Settings.Account Settings.Sync Account Data')"
+          :icon="busy ? ['fas', 'spinner'] : ['fas', 'rotate-right']"
+          :disabled="busy"
+          @click="syncAccountData"
+        />
+        <FtButton
           :label="$t('Settings.Account Settings.Import Subscriptions')"
           :icon="['fas', 'download']"
           :disabled="busy"
@@ -65,7 +71,7 @@
         />
         <FtButton
           :label="$t('Settings.Account Settings.Refresh Account Details')"
-          :icon="['fas', 'rotate']"
+          :icon="['fas', 'rotate-right']"
           :disabled="busy"
           @click="refreshAccountInfo"
         />
@@ -316,6 +322,47 @@ async function startSignIn() {
   } catch (error) {
     showToast(t('Settings.Account Settings.Sign In Error'))
     console.error(error)
+  }
+}
+
+async function syncAccountData() {
+  let subscriptionResult
+  let historyResult
+  let syncFailed = false
+
+  try {
+    subscriptionResult = await store.dispatch('syncSubscriptionsFromYouTubeAccount')
+  } catch (error) {
+    syncFailed = true
+    console.error('failed to sync YouTube subscriptions into FreeTube', error)
+  }
+
+  try {
+    historyResult = await store.dispatch('syncYouTubeAccountHistory')
+  } catch (error) {
+    syncFailed = true
+    console.error('failed to import YouTube watch history into FreeTube', error)
+  }
+
+  if (useYouTubeAccountFeed.value) {
+    try {
+      await store.dispatch('grabYouTubeAccountFeed', { refresh: true })
+    } catch (error) {
+      syncFailed = true
+      console.error('failed to refresh the YouTube account feed', error)
+    }
+  }
+
+  if (!syncFailed) {
+    await store.dispatch('updateAccountDataSyncVersion', 1)
+    const historyCount = (historyResult?.addedCount ?? 0) + (historyResult?.updatedCount ?? 0)
+
+    showToast(t('Settings.Account Settings.Sync Complete', {
+      channels: subscriptionResult?.addedCount ?? 0,
+      videos: historyCount
+    }))
+  } else {
+    showToast(t('Settings.Account Settings.Sync Partial'))
   }
 }
 

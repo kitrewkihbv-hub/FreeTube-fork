@@ -76,13 +76,17 @@ export function calculatePublishedDate(publishedText, isLive = false, isUpcoming
 
   const match = publishedText.match(PUBLISHED_TEXT_REGEX)
 
+  if (match === null) {
+    return undefined
+  }
+
   const timeFrame = match[2]
   const timeAmount = parseInt(match[1])
   let timeSpan = null
 
   if (timeFrame.startsWith('second') || timeFrame === 's') {
     timeSpan = timeAmount * 1000
-  } else if (timeFrame.startsWith('minute') || timeFrame === 'm' || timeFrame === 'min') {
+  } else if (timeFrame.startsWith('minute') || timeFrame.startsWith('min') || timeFrame === 'm') {
     timeSpan = timeAmount * 60000
   } else if (timeFrame.startsWith('hour') || timeFrame === 'h') {
     timeSpan = timeAmount * 3600000
@@ -95,6 +99,10 @@ export function calculatePublishedDate(publishedText, isLive = false, isUpcoming
     timeSpan = timeAmount * 2592000000
   } else if (timeFrame.startsWith('year') || timeFrame === 'y') {
     timeSpan = timeAmount * 31556952000
+  }
+
+  if (timeSpan === null) {
+    return undefined
   }
 
   return now - timeSpan

@@ -172,6 +172,74 @@ const landingPage = computed(() => '/' + store.getters.getLandingPage)
 const defaultInvidiousInstance = computed(() => store.getters.getDefaultInvidiousInstance)
 
 const dataReady = ref(false)
+const ACCOUNT_DATA_SYNC_VERSION = 1
+
+/**
+ * Pull the current YouTube subscriptions and recent watch history into FreeTube.
+ * This is deliberately read-only with respect to the YouTube account; FreeTube's
+ * local watch history is never uploaded.
+ * @param {{ onSignIn?: boolean, onStartup?: boolean }} [options]
+ */
+async function syncYouTubeAccountData({ onSignIn = false, onStartup = false } = {}) {
+  if (!process.env.IS_ELECTRON || !store.getters.getIsSignedInToYouTubeAccount) {
+    return
+  }
+
+  const isInitialSync = store.getters.getAccountDataSyncVersion < ACCOUNT_DATA_SYNC_VERSION
+
+  if (onStartup && !isInitialSync && !store.getters.getSignInSyncSubscriptions) {
+    return
+  }
+
+  if (onSignIn || isInitialSync) {
+    await store.dispatch('updateUseYouTubeAccountFeed', true)
+  }
+
+  let subscriptionResult
+  let historyResult
+  let coreSyncFailed = false
+  let feedSyncFailed = false
+
+  try {
+    subscriptionResult = await store.dispatch('syncSubscriptionsFromYouTubeAccount')
+  } catch (error) {
+    coreSyncFailed = true
+    console.error('failed to sync YouTube subscriptions into FreeTube', error)
+  }
+
+  try {
+    historyResult = await store.dispatch('syncYouTubeAccountHistory')
+  } catch (error) {
+    coreSyncFailed = true
+    console.error('failed to import YouTube watch history into FreeTube', error)
+  }
+
+  if (store.getters.getUseYouTubeAccountFeed) {
+    try {
+      await store.dispatch('grabYouTubeAccountFeed', { refresh: true })
+    } catch (error) {
+      feedSyncFailed = true
+      console.error('failed to refresh the YouTube account feed', error)
+    }
+  }
+
+  if (!coreSyncFailed) {
+    await store.dispatch('updateAccountDataSyncVersion', ACCOUNT_DATA_SYNC_VERSION)
+  }
+
+  if (onSignIn) {
+    const channelCount = subscriptionResult?.addedCount ?? 0
+    const historyCount = (historyResult?.addedCount ?? 0) + (historyResult?.updatedCount ?? 0)
+    if (coreSyncFailed || feedSyncFailed) {
+      showToast(t('Settings.Account Settings.Sync Partial'))
+    } else {
+      showToast(t('Settings.Account Settings.Sync Complete', {
+        channels: channelCount,
+        videos: historyCount
+      }))
+    }
+  }
+}
 
 onMounted(async () => {
   await store.dispatch('grabUserSettings')
@@ -203,18 +271,9 @@ onMounted(async () => {
       store.dispatch('getExternalPlayerCmdArgumentsData')
 
       // Restore the Google / YouTube account and start listening for the sign in results
-      window.ftElectron.handleYouTubeAccountSignInSuccess(() => {
-        store.dispatch('handleYouTubeAccountSignInSuccess').then(() => {
-          if (store.getters.getSignInSyncSubscriptions) {
-            store.dispatch('syncSubscriptionsFromYouTubeAccount')
-          }
-
-          if (store.getters.getUseYouTubeAccountFeed) {
-            store.dispatch('grabYouTubeAccountFeed', { refresh: true })
-          }
-
-          showToast(t('Settings.Account Settings.Signed In Toast'))
-        })
+      window.ftElectron.handleYouTubeAccountSignInSuccess(async () => {
+        await store.dispatch('handleYouTubeAccountSignInSuccess')
+        await syncYouTubeAccountData({ onSignIn: true })
       })
 
       window.ftElectron.handleYouTubeAccountSignInError((errorMessage) => {
@@ -223,7 +282,11 @@ onMounted(async () => {
         showToast(t('Settings.Account Settings.Sign In Error With Reason', { reason: errorMessage }))
       })
 
-      store.dispatch('grabYouTubeAccount')
+      store.dispatch('grabYouTubeAccount').then(() => {
+        return syncYouTubeAccountData({ onStartup: true })
+      }).catch((error) => {
+        console.error('failed to sync the signed-in YouTube account', error)
+      })
     }
 
     dataReady.value = true

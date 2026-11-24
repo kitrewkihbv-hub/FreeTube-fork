@@ -224,3 +224,73 @@
     }
   }
 }
+
+.youtubeAccountLink {
+  align-items: center;
+  background-color: var(--card-bg-color);
+  border: 1px solid var(--primary-color);
+  border-radius: 22px;
+  color: var(--primary-text-color);
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+  block-size: 40px;
+  line-height: 1;
+  padding-block: 0;
+  padding-inline: 10px;
+  text-decoration: none;
+  transition: background-color 0.2s ease-out, box-shadow 0.2s ease-out;
+
+  &:hover {
+    background-color: var(--side-nav-hover-color);
+    box-shadow: 0 0 0 2px var(--side-nav-hover-color);
+    color: var(--side-nav-hover-text-color);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+}
+
+.youtubeAccountBrandIcon {
+  color: #4285f4;
+  font-size: 18px;
+}
+
+.youtubeAccountAvatar {
+  border-radius: 50%;
+  block-size: 28px;
+  inline-size: 28px;
+  object-fit: cover;
+}
+
+.youtubeAccountLabel {
+  font-size: 13px;
+  font-weight: 600;
+  max-inline-size: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topNavBarColor .youtubeAccountLink {
+  background-color: var(--primary-color-hover);
+  border-color: var(--text-with-main-color);
+  color: var(--text-with-main-color);
+
+  &:hover {
+    background-color: var(--primary-color-active);
+    color: var(--text-with-main-color);
+  }
+}
+
+@media only screen and (width <=680px) {
+  .youtubeAccountLink {
+    padding-inline: 10px;
+  }
+
+  .youtubeAccountLabel {
+    display: none;
+  }
+}

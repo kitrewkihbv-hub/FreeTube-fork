@@ -117,7 +117,30 @@
         </button>
       </div>
     </div>
-    <FtProfileSelector class="side profiles" />
+    <div class="side profiles">
+      <RouterLink
+        v-if="USING_ELECTRON"
+        class="youtubeAccountLink"
+        :to="youTubeAccountRoute"
+        :aria-label="youTubeAccountNavTitle"
+        :title="youTubeAccountNavTitle"
+      >
+        <img
+          v-if="isSignedInToYouTubeAccount && youTubeAccount.thumbnail"
+          class="youtubeAccountAvatar"
+          :src="youTubeAccount.thumbnail"
+          alt=""
+        >
+        <FontAwesomeIcon
+          v-else
+          class="youtubeAccountBrandIcon"
+          :icon="isSignedInToYouTubeAccount ? ['fas', 'circle-user'] : ['fab', 'google']"
+          aria-hidden="true"
+        />
+        <span class="youtubeAccountLabel">{{ youTubeAccountNavText }}</span>
+      </RouterLink>
+      <FtProfileSelector />
+    </div>
   </nav>
 </template>
 
@@ -158,6 +181,22 @@ const hideHeaderLogo = computed(() => store.getters.getHideHeaderLogo)
 const enableSearchSuggestions = computed(() => store.getters.getEnableSearchSuggestions)
 /** @type {import('vue').ComputedRef<string>} */
 const barColor = computed(() => store.getters.getBarColor)
+const USING_ELECTRON = !!process.env.IS_ELECTRON
+const youTubeAccount = computed(() => store.getters.getYouTubeAccount)
+const isSignedInToYouTubeAccount = computed(() => store.getters.getIsSignedInToYouTubeAccount)
+const youTubeAccountRoute = computed(() => isSignedInToYouTubeAccount.value
+  ? { path: '/settings', query: { section: 'account' } }
+  : { path: '/account/sign-in' })
+const youTubeAccountNavText = computed(() => {
+  if (!isSignedInToYouTubeAccount.value) {
+    return t('Settings.Account Settings.Top Nav Sign In')
+  }
+
+  return youTubeAccount.value.name ?? t('Settings.Account Settings.Signed In')
+})
+const youTubeAccountNavTitle = computed(() => isSignedInToYouTubeAccount.value
+  ? t('Settings.Account Settings.Account Settings') + ': ' + youTubeAccountNavText.value
+  : t('Settings.Account Settings.Sign In'))
 
 const expandCollapseSideBarLabel = computed(() => {
   return store.getters.getIsSideNavOpen ? t('Compact side navigation') : t('Expand side navigation')

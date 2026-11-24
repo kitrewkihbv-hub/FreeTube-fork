@@ -27,7 +27,6 @@ on:
     branches: [arena/64591193-freetube-with-account]
     paths: [.release-trigger]
 
-
 cache-mode: none
 permissions: {}
 
@@ -82,14 +81,21 @@ jobs:
           Build of the `arena/64591193-freetube-with-account` branch, from Build run ${{ steps.target.outputs.run_id }}.
 
           Changes in this build:
-          - Sign in with a Google/YouTube account, using the same QR code sign in flow as SmartTube.
-            Settings → Account → Sign In With Google. The tokens are stored encrypted with the OS keychain.
+          - Sign in with Google/YouTube using the SmartTube-compatible QR flow or the manual code.
+            Session tokens are encrypted with the OS keychain when Electron safeStorage supports it.
+          - Account status and Google sign-in are visible in the top-right navigation.
+          - Signing in imports YouTube subscriptions into the active profile and recent watch history
+            into FreeTube locally. FreeTube's local watch history is never uploaded to YouTube.
+          - In the watch player, use the overflow menu near subtitles to change video size; the
+            setting also has a fine-control slider in Settings → Player.
           - The video title is no longer drawn over the video when it is zoomed into fullscreen.
 
           Install on macOS: open the `.dmg` and drag FreeTube to Applications.
-          The build is ad-hoc signed and not notarized, so macOS warns on first launch.
-          Right click the app and choose "Open" (or run
-          `xattr -dr com.apple.quarantine /Applications/FreeTube.app`) to allow it.
+          This build is ad-hoc signed and has not been notarized by Apple. Gatekeeper may warn
+          that it cannot verify the developer or check the app for malicious software. That
+          warning is not a malware finding, but it is also not proof that the app is safe.
+          We cannot recommend bypassing Gatekeeper for this build. A warning-free install
+          requires an Apple Developer ID-signed and notarized release.
 
           Apple Silicon Macs use the `arm64` files, Intel Macs use the `x64` files.
         files: assets/*
