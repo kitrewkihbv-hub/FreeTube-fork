@@ -21,6 +21,35 @@ async function testYouTubeIAuth() {
   assert.equal(requests[0].body.context.client.clientName, 'TVHTML5')
   assert.equal(requests[0].body.serviceIntegrityDimensions.poToken, 'test-proof')
 
+  // Exercise MacTube's per-video clone with the real youtubei.js Session/HTTPClient.
+  // The challenge's visitor ID, OAuth header and proof token must match on the wire.
+  const localCode = fs.readFileSync('src/renderer/helpers/api/local.js', 'utf8')
+  const cloneStart = localCode.indexOf('function createAuthenticatedVideoSession(')
+  const cloneEnd = localCode.indexOf('\n/**', cloneStart)
+  assert.ok(cloneStart >= 0 && cloneEnd > cloneStart)
+  const cloneContext = vm.createContext({ Session, deepCopy: x => JSON.parse(JSON.stringify(x)) })
+  vm.runInContext(localCode.slice(cloneStart, cloneEnd), cloneContext)
+  const originalVisitor = session.context.client.visitorData
+  const first = cloneContext.createAuthenticatedVideoSession(session, 'visitor-for-challenge-A', 'proof-A')
+  const second = cloneContext.createAuthenticatedVideoSession(session, 'visitor-for-challenge-B', 'proof-B')
+  assert.equal(first.po_token, 'proof-A')
+  assert.equal(second.po_token, 'proof-B')
+  assert.equal(session.context.client.visitorData, originalVisitor, 'shared account visitor is unchanged')
+  assert.notEqual(session.po_token, 'proof-A', 'video tokens are not stored on the shared account session')
+  await Promise.all([
+    first.actions.execute('/player', { videoId: 'video123456', serviceIntegrityDimensions: { poToken: first.po_token } }),
+    second.actions.execute('/player', { videoId: 'video234567', serviceIntegrityDimensions: { poToken: second.po_token } }),
+  ])
+  assert.equal(requests[1].body.context.client.clientName, 'TVHTML5')
+  assert.equal(requests[1].body.context.client.visitorData, 'visitor-for-challenge-A')
+  assert.equal(requests[1].body.serviceIntegrityDimensions.poToken, 'proof-A')
+  assert.equal(requests[1].headers.get('authorization'), 'Bearer test-access')
+  assert.equal(requests[2].body.context.client.visitorData, 'visitor-for-challenge-B')
+  assert.equal(requests[2].body.serviceIntegrityDimensions.poToken, 'proof-B')
+  assert.equal(cloneContext.createAuthenticatedVideoSession(session, '', 'proof'), null)
+  assert.equal(cloneContext.createAuthenticatedVideoSession(session, 'visitor', ''), null)
+  assert.equal(cloneContext.createAuthenticatedVideoSession({ ...session, logged_in: false }, 'visitor', 'proof'), null)
+
   // Force expiry after sign-in: youtubei.js should refresh before the next request
   // and emit the new credentials so MacTube can persist them.
   let updated
@@ -49,14 +78,15 @@ async function testYouTubeIAuth() {
   refreshedSession.on('update-credentials', ({ credentials }) => { updated = { ...credentials } })
   await refreshedSession.signIn({ access_token: 'old-access', refresh_token: 'test-refresh', expiry_date: '2099-01-01T00:00:00.000Z', client: { client_id: 'test', client_secret: 'test' } })
   refreshedSession.oauth.oauth2_tokens.expiry_date = '2000-01-01T00:00:00.000Z'
-  await refreshedSession.actions.execute('/player', { videoId: 'video123456' })
+  const refreshClone = cloneContext.createAuthenticatedVideoSession(refreshedSession, 'same-visitor', 'proof-refresh')
+  await refreshClone.actions.execute('/player', { videoId: 'video123456', serviceIntegrityDimensions: { poToken: refreshClone.po_token } })
   assert.equal(refreshCalls, 1)
   assert.equal(updated.access_token, 'refreshed-access')
   assert.equal(updated.refresh_token, 'rotated-refresh')
   assert.equal(refreshedSession.oauth.oauth2_tokens.refresh_token, 'rotated-refresh')
 }
 
-async function testSelection({ candidate, signedIn = true, isLive = false, invalidate = false, badTvParser = false }) {
+async function testSelection({ candidate, signedIn = true, isLive = false, invalidate = false, badTvParser = false, missingVisitor = false }) {
   const source = fs.readFileSync('src/renderer/helpers/api/local.js', 'utf8')
   const extract = (start, end) => {
     const a = source.indexOf(start), b = source.indexOf(end, a)
@@ -67,8 +97,8 @@ async function testSelection({ candidate, signedIn = true, isLive = false, inval
     extract('function createWatchNextRequestBody(', '\n/**') + '\n' +
     extract('export async function getLocalVideoInfo(', '\n/**')
   const events = [], calls = []
-  const webContext = { client: { clientName: 'WEB', clientVersion: '1' } }
-  const tvContext = { client: { clientName: 'TVHTML5', clientVersion: '2' } }
+  const webContext = { client: { clientName: 'WEB', clientVersion: '1', visitorData: missingVisitor ? '' : 'proof-visitor' } }
+  const tvContext = { client: { clientName: 'TVHTML5', clientVersion: '2', visitorData: 'original-tv-visitor' } }
   const webPlayer = { playabilityStatus: { status: 'OK' }, videoDetails: {}, streamingData: { formats: [{ id: 'web' }] } }
   const tv = { session: { context: tvContext, actions: { execute: async (path, body) => {
     events.push('tv-player'); calls.push({ path, body })
@@ -97,6 +127,13 @@ async function testSelection({ candidate, signedIn = true, isLive = false, inval
     YT: { VideoInfo }, Utils: { generateRandomString: () => 'cpn' }, Constants: { CLIENT_NAME_IDS: { WEB: '1', TVHTML5: '7' } },
     extractTotalAdTimeMilliseconds: () => 0, extractLocalContentDisclosures: () => null,
     createYouTubeWatchTracker: () => ({ update() {} }),
+    createAuthenticatedVideoSession: (original, visitor, token) => {
+      assert.equal(original, tv.session)
+      if (missingVisitor) { assert.equal(visitor, ''); return null }
+      assert.equal(visitor, 'proof-visitor')
+      assert.equal(token, 'test-proof')
+      return { ...original, context: { client: { ...original.context.client, visitorData: visitor } }, po_token: token }
+    },
     decipherFormats: async () => {}, decipherManifestUrl: async url => url,
     createInnertube: async () => { throw Error('unexpected fallback') }, ClientType: {}, console: { warn() {}, error() {} }, Date,
   })
@@ -104,12 +141,12 @@ async function testSelection({ candidate, signedIn = true, isLive = false, inval
   const result = await vm.runInContext("getLocalVideoInfo('video123456')", context)
   assert.equal(events[0], 'session', 'account session initializes before HTML or player access')
   assert.equal(result.info.next.metadata, 'web', 'Web watch-next metadata is preserved')
-  if (signedIn) {
+  if (signedIn && !missingVisitor) {
     assert.equal(calls[0].path, '/player')
     assert.equal(calls[0].body.videoId, 'video123456')
     assert.equal(calls[0].body.serviceIntegrityDimensions.poToken, 'test-proof')
   } else assert.equal(calls.length, 0)
-  const usesTv = signedIn && !invalidate && !badTvParser && !(candidate instanceof Error) && candidate?.playabilityStatus?.status === 'OK' && candidate?.streamingData
+  const usesTv = signedIn && !missingVisitor && !invalidate && !badTvParser && !(candidate instanceof Error) && candidate?.playabilityStatus?.status === 'OK' && candidate?.streamingData
   assert.equal(result.info.player, usesTv ? candidate : webPlayer)
   assert.equal(result.clientInfo.clientName, usesTv ? '7' : '1')
   if (isLive) assert.ok(!events.includes('web-/player'), 'TV live playback does not overwrite the authenticated response with an anonymous MWEB response')
@@ -124,6 +161,7 @@ async function testSelection({ candidate, signedIn = true, isLive = false, inval
   await testSelection({ candidate: valid, signedIn: false })
   await testSelection({ candidate: valid, invalidate: true })
   await testSelection({ candidate: valid, badTvParser: true })
+  await testSelection({ candidate: valid, missingVisitor: true })
   await testSelection({ candidate: { playabilityStatus: { status: 'OK' }, videoDetails: { isLive: true }, streamingData: { hlsManifestUrl: 'https://example.com/live' } }, isLive: true })
   console.log('Authenticated playback tests passed')
 })().catch(error => { console.error(error); process.exitCode = 1 })

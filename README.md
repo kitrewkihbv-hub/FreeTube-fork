@@ -6,7 +6,7 @@ MacTube is an experimental fork of [FreeTube](https://github.com/FreeTubeApp/Fre
 
 - **Discover:** use YouTube home recommendations and related videos based on recent watch history. Video titles and IDs may be sent to YouTube to find related suggestions; refresh can still repeat videos if results are limited.
 - **Subscriptions:** keep subscribed-channel videos separate from discovery. Use local subscriptions or the signed-in YouTube feed; imports can be partial. If an account-feed refresh adds no videos, another part of the returned feed is shown first, with an option to restore YouTube’s order.
-- **Signed-in playback:** MacTube tries the saved TV account for playback. When Remember Watch History is enabled, it may report signed-in playback and progress to YouTube; existing local history is not bulk-uploaded. YouTube can still reject requests.
+- **Signed-in playback:** MacTube tries the saved TV account for playback using a video-specific proof token and the challenge’s visitor context, with signed-out fallback if it fails. When Remember Watch History is enabled, it may report signed-in playback and progress to YouTube; existing local history is not bulk-uploaded. YouTube can still reject requests.
 - **Live video:** watch available live streams and use the existing live-chat viewer. The separate Live discovery tab has been removed.
 - **Make it yours:** choose app colors with the palette, switch light/dark themes, select a startup tab, and adjust video width and height independently.
 - **Optional YouTube sign-in:** import supported account data and access account features. Google can see authenticated requests; account imports and synchronization depend on YouTube and may be incomplete.
