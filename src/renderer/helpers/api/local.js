@@ -22,6 +22,7 @@ import {
 } from './youtubeAccountRawFeed'
 import { getYouTubeAccountSubscriptionTabs } from './youtubeAccountSubscriptions'
 import { loadAccountActivity } from './youtubeAccountActivity'
+import { createYouTubeWatchTracker } from './youtubeWatchTracker'
 import { hasLiveBadge } from './discoveryFeed'
 
 const TRACKING_PARAM_NAMES = [
@@ -428,6 +429,10 @@ let accountTokens = null
 /** @type {Innertube | null} */
 let accountInnertube = null
 
+/** @type {Promise<Innertube|null> | null} */
+let accountInnertubePromise = null
+let accountSessionGeneration = 0
+
 /** @type {Innertube | null} */
 let accountWebInnertube = null
 
@@ -443,7 +448,10 @@ function saveAccountTokens(tokens) {
   accountTokens = tokens
 
   if (process.env.IS_ELECTRON) {
-    window.ftElectron.updateAccountTokens(tokens)
+    window.ftElectron.updateAccountTokens(tokens).catch(() => {
+      // Do not log credentials or raw authentication responses.
+      console.warn('Could not persist refreshed YouTube account credentials.')
+    })
   }
 }
 
@@ -456,18 +464,52 @@ async function getAccountTokens() {
   }
 
   if (accountTokens === null) {
-    accountTokens = await window.ftElectron.getAccountTokens()
+    const generation = accountSessionGeneration
+    const tokens = await window.ftElectron.getAccountTokens()
+    if (generation !== accountSessionGeneration) return null
+    accountTokens = tokens
   }
 
   return accountTokens
 }
 
 /**
+ * youtubei.js refreshes OAuth access tokens, but its current version ignores an
+ * optional rotated refresh_token in the response. Preserve it before youtubei.js
+ * emits update-credentials. No credentials are logged or sent to another host.
+ * @param {() => Innertube | null} getClient
+ * @param {number} generation
+ */
+function createAccountFetch(getClient, generation) {
+  return async (input, init) => {
+    const response = await fetch(input, init)
+    const url = input instanceof URL ? input.href : (typeof input === 'string' ? input : input?.url)
+    if (url === 'https://www.youtube.com/o/oauth2/token' && response.ok && generation === accountSessionGeneration) {
+      try {
+        const request = JSON.parse(init?.body ?? '{}')
+        if (request.grant_type === 'refresh_token') {
+          const data = await response.clone().json()
+          const tokens = getClient()?.session.oauth.oauth2_tokens
+          if (tokens && typeof data.refresh_token === 'string' && data.refresh_token && !data.error && !data.error_code) {
+            tokens.refresh_token = data.refresh_token
+          }
+        }
+      } catch {
+        // youtubei.js will process and report the original response.
+      }
+    }
+    return response
+  }
+}
+
+/**
  * Removes the in-memory account data, so that the next request starts fresh
  */
 export function clearYouTubeAccountSession() {
+  accountSessionGeneration++
   accountTokens = null
   accountInnertube = null
+  accountInnertubePromise = null
   accountWebInnertube = null
   accountWebInnertubePromise = null
 }
@@ -481,36 +523,39 @@ export function clearYouTubeAccountSession() {
  * @returns {Promise<Innertube|null>} null when not signed in
  */
 export async function getYouTubeAccountInnertube() {
-  const tokens = await getAccountTokens()
+  if (accountInnertube !== null) return accountInnertube
+  if (accountInnertubePromise !== null) return accountInnertubePromise
 
-  if (tokens === null) {
-    return null
-  }
+  const generation = accountSessionGeneration
+  const promise = (async () => {
+    const tokens = await getAccountTokens()
+    if (generation !== accountSessionGeneration || tokens === null) return null
 
-  if (accountInnertube === null) {
-    // Do not cache the client until OAuth sign-in succeeds. Caching it first leaves a
-    // failed, unauthenticated client in place, which can make later account reads look
-    // like a successful empty result instead of reporting the auth error.
-    const innertube = await createInnertube({
+    let innertube = null
+    innertube = await createInnertube({
       clientType: ClientType.TV,
-      // the TVInnerTube API expects requests from the TV app
-      userAgent: TV_CLIENT_USER_AGENT
+      userAgent: TV_CLIENT_USER_AGENT,
+      fetchFunc: createAccountFetch(() => innertube, generation),
     })
 
     innertube.session.on('update-credentials', ({ credentials }) => {
-      saveAccountTokens({ ...accountTokens, ...credentials })
+      if (generation === accountSessionGeneration) saveAccountTokens({ ...accountTokens, ...credentials })
     })
 
     await innertube.session.signIn(tokens)
-
+    if (generation !== accountSessionGeneration) return null
     if (!innertube.session.logged_in) {
       throw new Error('YouTube did not authenticate the saved account tokens.')
     }
-
     accountInnertube = innertube
+    return innertube
+  })()
+  accountInnertubePromise = promise
+  try {
+    return await promise
+  } finally {
+    if (accountInnertubePromise === promise) accountInnertubePromise = null
   }
-
-  return accountInnertube
 }
 
 /**
@@ -531,15 +576,18 @@ async function getYouTubeAccountWebInnertube() {
     return accountWebInnertube
   }
 
+  const generation = accountSessionGeneration
   if (accountWebInnertubePromise === null) {
     accountWebInnertubePromise = (async () => {
-      const innertube = await createInnertube({ clientType: ClientType.WEB })
+      let innertube = null
+      innertube = await createInnertube({ clientType: ClientType.WEB, fetchFunc: createAccountFetch(() => innertube, generation) })
 
       innertube.session.on('update-credentials', ({ credentials }) => {
-        saveAccountTokens({ ...accountTokens, ...credentials })
+        if (generation === accountSessionGeneration) saveAccountTokens({ ...accountTokens, ...credentials })
       })
 
       await innertube.session.signIn(tokens)
+      if (generation !== accountSessionGeneration) throw new Error('The YouTube account session changed.')
 
       if (!innertube.session.logged_in) {
         throw new Error('YouTube did not authenticate the saved account tokens with its WEB client.')
@@ -549,11 +597,14 @@ async function getYouTubeAccountWebInnertube() {
     })()
   }
 
+  const promise = accountWebInnertubePromise
   try {
-    accountWebInnertube = await accountWebInnertubePromise
-    return accountWebInnertube
+    const innertube = await promise
+    if (generation !== accountSessionGeneration) throw new Error('The YouTube account session changed.')
+    accountWebInnertube = innertube
+    return innertube
   } finally {
-    accountWebInnertubePromise = null
+    if (accountWebInnertubePromise === promise) accountWebInnertubePromise = null
   }
 }
 
@@ -2134,6 +2185,7 @@ function createWatchNextRequestBody(videoId) {
 
 /**
  * @param {string} id
+ * @param {{ skipAccountPlayback?: boolean }} [options]
  * @returns {Promise<{
  *   info: import('youtubei.js').YT.VideoInfo,
  *   poToken: string | undefined,
@@ -2146,7 +2198,7 @@ function createWatchNextRequestBody(videoId) {
  *   adEndTimeUnixMs: number
  * }>}
  */
-export async function getLocalVideoInfo(id) {
+export async function getLocalVideoInfo(id, { skipAccountPlayback = false } = {}) {
   let responseTime
   let totalAdTimeMilliseconds = 0
 
@@ -2172,6 +2224,15 @@ export async function getLocalVideoInfo(id) {
     })
   }
 
+  // Await the saved TV OAuth session before making playback requests. If sign-in
+  // fails, preserve the existing signed-out playback path rather than logging tokens.
+  let accountClient = null
+  try {
+    if (!skipAccountPlayback) accountClient = await getYouTubeAccountInnertube()
+  } catch {
+    console.warn('Could not initialize the YouTube account for playback; trying signed-out playback.')
+  }
+  const playbackGeneration = accountSessionGeneration
   const htmlExtracts = await getWatchHTMLWatchPage(id, fetchFunc)
   responseTime = Date.now()
 
@@ -2204,9 +2265,40 @@ export async function getLocalVideoInfo(id) {
 
   let playerResponse
   let nextResponse
-  const context = htmlExtracts.session.context
+  let context = htmlExtracts.session.context
+  let usedAccountPlayer = false
 
-  if (!htmlExtracts.playerResponse && !htmlExtracts.nextResponse) {
+  // youtubei.js attaches and refreshes the OAuth bearer token for this TV session.
+  // The PO token is minted using the existing Web challenge and bound to this video;
+  // YouTube may still reject it for a TV client. Never send account tokens to the
+  // isolated BotGuard window or to a third-party endpoint.
+  if (accountClient && playbackGeneration === accountSessionGeneration) {
+    try {
+      const candidate = await accountClient.session.actions.execute('/player',
+        createPlayerRequestBody(id, player.signature_timestamp, contentPoToken))
+      const data = candidate?.data
+      const streams = data?.streamingData
+      if (playbackGeneration === accountSessionGeneration && data?.playabilityStatus?.status === 'OK' &&
+        (!data.videoDetails?.videoId || data.videoDetails.videoId === id) &&
+        (streams?.formats?.length || streams?.adaptiveFormats?.length || streams?.hlsManifestUrl || streams?.dashManifestUrl || streams?.serverAbrStreamingUrl)) {
+        playerResponse = candidate
+        context = accountClient.session.context
+        usedAccountPlayer = true
+        totalAdTimeMilliseconds = extractTotalAdTimeMilliseconds(data)
+        responseTime = Date.now()
+      }
+    } catch {
+      console.warn('Authenticated TV playback request failed; trying signed-out playback.')
+    }
+  }
+
+  if (usedAccountPlayer) {
+    // Keep Web watch-next metadata (comments, chapters and live chat) while using
+    // the TV player response. Request it only if it wasn't present in the HTML.
+    nextResponse = htmlExtracts.nextResponse
+      ? { data: htmlExtracts.nextResponse }
+      : await htmlExtracts.session.actions.execute('/next', createWatchNextRequestBody(id))
+  } else if (!htmlExtracts.playerResponse && !htmlExtracts.nextResponse) {
     const combinedResponse = await htmlExtracts.session.actions.execute('/get_watch', {
       playerRequest: createPlayerRequestBody(id, player.signature_timestamp, contentPoToken),
       watchNextRequest: createWatchNextRequestBody(id)
@@ -2242,7 +2334,7 @@ export async function getLocalVideoInfo(id) {
   }
 
   if (
-    playerResponse?.data &&
+    !usedAccountPlayer && playerResponse?.data &&
     (playerResponse.data.videoDetails?.isLive ||
     playerResponse.data.videoDetails?.isPostLiveDvr) &&
     !playerResponse.data.videoDetails?.isUpcoming &&
@@ -2258,7 +2350,19 @@ export async function getLocalVideoInfo(id) {
 
   const cpn = Utils.generateRandomString(16)
 
-  const info = new YT.VideoInfo([playerResponse, nextResponse], htmlExtracts.session.actions, cpn)
+  let info
+  try {
+    info = new YT.VideoInfo([playerResponse, nextResponse], htmlExtracts.session.actions, cpn)
+  } catch (error) {
+    // TV responses can contain unsupported structures. Keep the existing Web
+    // player if it was already available instead of failing the whole watch page.
+    if (!usedAccountPlayer || !htmlExtracts.playerResponse) throw error
+    playerResponse = { data: htmlExtracts.playerResponse }
+    context = htmlExtracts.session.context
+    usedAccountPlayer = false
+    totalAdTimeMilliseconds = extractTotalAdTimeMilliseconds(playerResponse.data)
+    info = new YT.VideoInfo([playerResponse, nextResponse], htmlExtracts.session.actions, cpn)
+  }
 
   // Some time would be used for parsing and maybe additional requests so end time should be calculated sooner to reduce actual waiting time
   // Legacy format requires this
@@ -2374,6 +2478,16 @@ export async function getLocalVideoInfo(id) {
 
   return {
     info,
+    usedAccountPlayback: usedAccountPlayer,
+    // Tracking is best-effort and only used when Remember Watch History is on.
+    watchTracker: usedAccountPlayer
+      ? createYouTubeWatchTracker({
+          session: accountClient.session,
+          tracking: playerResponse.data.playbackTracking,
+          cpn,
+          isActive: () => playbackGeneration === accountSessionGeneration && accountInnertube === accountClient,
+        })
+      : null,
     poToken: contentPoToken,
     clientInfo,
     adEndTimeUnixMs,

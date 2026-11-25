@@ -137,6 +137,7 @@ Subscriptions:
   All Subscription Tabs Hidden: 'All subscription tabs are hidden. To see content here, please unhide some tabs in the "{subsection}" section in "{settingsSection}".'
   Account Feed New Results: "YouTube returned {count} videos that were not in the previous feed."
   Account Feed Rotated: No videos were added to the returned feed. Showing a different part of the same feed first; this is not YouTube's original order.
+  Account Feed Cooldown: Using the recently loaded subscription feed to avoid repeated requests. Try again shortly to check YouTube.
   Account Feed Unchanged: No videos were added to the returned feed. YouTube may not have new uploads available yet.
   Restore Feed Order: Restore YouTube order
   Account Feed Partial: YouTube returned a limited subscription feed. Some subscribed channels or videos may be missing.
@@ -307,7 +308,7 @@ Settings:
     Top Nav Sign In: Sign In
     Sync Account Data: Sync YouTube Data
     Syncing Account Data: Syncing YouTube Data…
-    Sync Complete: 'YouTube sync finished: {channels} new channels, {historyVideos} recent YouTube history videos found ({videos} new or updated locally), and {playlists} playlists synced ({playlistVideos} new playlist videos added). History and playlists are imported locally only; FreeTube does not upload them to YouTube.'
+    Sync Complete: 'YouTube sync finished: {channels} new channels, {historyVideos} recent YouTube history videos found ({videos} new or updated locally), and {playlists} playlists synced ({playlistVideos} new playlist videos added). Existing local history and playlists are not uploaded during import. Signed-in playback may be reported separately to YouTube when Remember Watch History is enabled.'
     Sync Partial: 'Partial YouTube sync (subscriptions may be incomplete): {historyVideos} history videos found; {playlists} playlists imported ({failedPlaylists} read failures); {playlistVideos} new playlist videos added. Some data was empty or incomplete. Tap Sync YouTube Data to retry.'
     Sign In Title: Sign in to your Google account
     Sign In Instructions: Scan the QR code with your phone to sign in without typing
@@ -348,13 +349,13 @@ Settings:
     Sync Subscriptions to YouTube: Also Subscribe on YouTube
     Disclaimer: Your sign-in tokens are stored on this device and encrypted with
       your operating system's keychain whenever it is available. FreeTube sends them
-      directly to YouTube only when reading your account data; FreeTube's servers do
+      directly to YouTube for account features and signed-in playback; FreeTube's servers do
       not receive them. Account sync imports YouTube subscriptions, watch history,
       custom playlists, Watch Later, and liked videos locally. History and playlist
       imports only add or merge local data; they never upload those items to YouTube
       or remove your existing local history or playlist videos. This explicit history
       import still works when Remember History is off; that setting only controls
-      automatic local watch tracking.
+      automatic local watch tracking and signed-in playback reporting. When enabled, signed-in playback may be added to YouTube watch history.
   General Settings:
     General Settings: General
     Check for Updates: Check for Updates
@@ -945,7 +946,7 @@ Channel:
     Hide Answers: Hide Answers
     Video hidden by FreeTube: Video hidden by FreeTube
 Video:
-  IP block: 'YouTube has blocked your IP address from watching videos, or this video may contain content featuring minors that YouTube restricts access to for signed-out users. If this is an IP block, try switching to a different VPN or proxy.'
+  IP block: 'YouTube requested sign-in or verification for this playback session. This may be a temporary network or client restriction, not necessarily an IP block. Try again later or watch on YouTube.'
   MembersOnly: Members-only videos cannot be watched with FreeTube as they require Google login and paid membership to the uploader's channel.
   AgeRestricted: Age-restricted videos cannot be watched with FreeTube as they require Google login and using an age-verified YouTube account.
   DRMProtected: DRM protected videos cannot be played in FreeTube, as they require proprietary, closed source components. If you want to watch this video please watch it on the official YouTube website in a DRM enabled web browser.

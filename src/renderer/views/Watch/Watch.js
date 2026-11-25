@@ -96,8 +96,9 @@ export default defineComponent({
     const { t, locale } = useI18n()
 
     const liveChat = shallowRef(null)
+    const accountWatchTracker = shallowRef(null)
 
-    return { t, currentLocale: locale, liveChat }
+    return { t, currentLocale: locale, liveChat, accountWatchTracker }
   },
   data: function () {
     return {
@@ -185,6 +186,7 @@ export default defineComponent({
       currentPlaybackRate: null,
 
       isReloadingView: false,
+      usedAccountPlayback: false,
     }
   },
   computed: {
@@ -358,7 +360,7 @@ export default defineComponent({
     this.onMountedDependOnLocalStateLoading()
   },
   methods: {
-    async reloadView() {
+    async reloadView(preferSignedOut = false) {
       if (this.isReloadingView) { return }
 
       try {
@@ -384,7 +386,7 @@ export default defineComponent({
 
         switch (this.backendPreference) {
           case 'local':
-            await this.getVideoInformationLocal()
+            await this.getVideoInformationLocal(preferSignedOut)
             break
           case 'invidious':
             this.getVideoInformationInvidious()
@@ -396,6 +398,8 @@ export default defineComponent({
     },
 
     resetVideoState: function () {
+      this.accountWatchTracker = null
+      this.usedAccountPlayback = false
       this.isLoading = true
       this.isFamilyFriendly = false
       this.isLive = false
@@ -507,14 +511,16 @@ export default defineComponent({
       }
     },
 
-    getVideoInformationLocal: async function () {
+    getVideoInformationLocal: async function (preferSignedOut = false) {
       if (this.firstLoad) {
         this.isLoading = true
       }
 
       try {
-        const videoInfo = await getLocalVideoInfo(this.videoId)
-        const { info: result, poToken, clientInfo, adEndTimeUnixMs, contentDisclosures } = videoInfo
+        const videoInfo = await getLocalVideoInfo(this.videoId, { skipAccountPlayback: preferSignedOut })
+        const { info: result, poToken, clientInfo, adEndTimeUnixMs, contentDisclosures, watchTracker } = videoInfo
+        this.accountWatchTracker = watchTracker ?? null
+        this.usedAccountPlayback = videoInfo.usedAccountPlayback === true
         this.contentDisclosures = contentDisclosures || null
 
         const playabilityStatus = result.playability_status
@@ -906,7 +912,7 @@ export default defineComponent({
 
             if (
               videoInfo.info.streaming_data?.server_abr_streaming_url &&
-              videoInfo.info.player_config.media_common_config.media_ustreamer_request_config
+              videoInfo.info.player_config?.media_common_config?.media_ustreamer_request_config
             ) {
               const storyboards = storyboard
                 ? [{
@@ -1227,6 +1233,13 @@ export default defineComponent({
     /**
      * @param {number} currentSeconds
      */
+    handleTimeUpdate: function (currentSeconds) {
+      this.updateCurrentChapter(currentSeconds)
+      if (this.rememberHistory && !this.isUpcoming && this.$refs.player?.hasLoaded && !this.$refs.player.isPaused()) {
+        this.accountWatchTracker?.update(currentSeconds)
+      }
+    },
+
     updateCurrentChapter: function (currentSeconds) {
       const chapters = this.videoChapters
 
@@ -1566,6 +1579,7 @@ export default defineComponent({
     },
 
     handleRouteChange: function () {
+      this.accountWatchTracker = null
       this.abortAutoplayCountdown(true)
       this.handleWatchProgressAutoSave()
     },
@@ -1593,6 +1607,14 @@ export default defineComponent({
             return
           case 403:
             this.handleWatchProgressAutoSaveWhenProgressEnabled()
+
+            // A TV response can look playable but the media server can still reject
+            // it. Retry the existing signed-out path once before showing an error.
+            if (this.usedAccountPlayback && !this.videoPlayerLoaded && !this.isReloadingView) {
+              this.usedAccountPlayback = false
+              this.reloadView(true).catch(() => { this.errorMessage = '[BAD_HTTP_STATUS: 403] Playback request was rejected.' })
+              return
+            }
 
             if (new Date() > this.streamingDataExpiryDate) {
               this.errorMessage = '[BAD_HTTP_STATUS: 403] YouTube watch session expired. Please reopen this video.'

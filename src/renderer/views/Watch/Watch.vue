@@ -49,7 +49,7 @@
           class="videoPlayer"
           @error="handlePlayerError"
           @loaded="handleVideoLoaded"
-          @timeupdate="updateCurrentChapter"
+          @timeupdate="handleTimeUpdate"
           @ended="handleVideoEnded"
           @toggle-theatre-mode="useTheatreMode = !useTheatreMode"
           @toggle-autoplay="toggleAutoplay"

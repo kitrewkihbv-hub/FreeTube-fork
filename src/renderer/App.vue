@@ -230,7 +230,7 @@ async function syncYouTubeAccountData({ onSignIn = false, onStartup = false } = 
 
   if (store.getters.getUseYouTubeAccountFeed) {
     try {
-      await store.dispatch('grabYouTubeAccountFeed', { refresh: true })
+      await store.dispatch('grabYouTubeAccountFeed', { refresh: false })
     } catch (error) {
       feedSyncFailed = true
       console.error('failed to refresh the YouTube account feed', error)

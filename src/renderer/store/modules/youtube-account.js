@@ -17,6 +17,9 @@ import {
  * @property {string|null} handle
  */
 
+let lastManualFeedRequestAt = 0
+const MANUAL_FEED_COOLDOWN_MS = 15 * 1000
+
 let feedRequest = null
 let feedGeneration = 0
 
@@ -131,6 +134,7 @@ const mutations = {
     state.youtubeAccountFeed = null
     state.youtubeAccountFeedInfo = null
     feedGeneration++
+    lastManualFeedRequestAt = 0
     feedRequest = null
   },
 
@@ -488,8 +492,9 @@ const actions = {
    * @param {object} context the Vuex action context
    * @param {object} payload
    * @param {boolean} [payload.refresh]
+   * @param {boolean} [payload.manual]
    */
-  async grabYouTubeAccountFeed(context, { refresh = false } = {}) {
+  async grabYouTubeAccountFeed(context, { refresh = false, manual = false } = {}) {
     const { commit } = context
 
     if (context.state.youtubeAccountFeed !== null && !refresh) {
@@ -497,6 +502,14 @@ const actions = {
     }
 
     if (feedRequest) return feedRequest
+
+    // Avoid repeated manual requests while still letting the view rearrange cached
+    // results; invalidation always bypasses the cooldown because the feed is null.
+    if (manual && context.state.youtubeAccountFeed !== null && lastManualFeedRequestAt &&
+      Date.now() - lastManualFeedRequestAt < MANUAL_FEED_COOLDOWN_MS) {
+      return context.state.youtubeAccountFeed
+    }
+    if (manual) lastManualFeedRequestAt = Date.now()
 
     const generation = feedGeneration
     const request = (async () => {
@@ -510,6 +523,9 @@ const actions = {
     feedRequest = request
     try {
       return await request
+    } catch (error) {
+      if (manual && generation === feedGeneration) lastManualFeedRequestAt = 0
+      throw error
     } finally {
       if (feedRequest === request) feedRequest = null
     }
@@ -517,6 +533,7 @@ const actions = {
 
   clearYouTubeAccountFeed({ commit }) {
     feedGeneration++
+    lastManualFeedRequestAt = 0
     feedRequest = null
     commit('setYouTubeAccountFeedInfo', null)
     commit('setYouTubeAccountFeed', null)

@@ -64,8 +64,8 @@ export async function loadAccountActivity({ tv, getWebClient, getRawFeed, getRow
     const channels = subscriptions.channels.slice(0, 40)
     const uploads = []
     let failed = 0
-    for (let i = 0; i < channels.length; i += 5) {
-      const results = await Promise.all(channels.slice(i, i + 5).map(async channel => {
+    for (let i = 0; i < channels.length; i += 2) {
+      const results = await Promise.all(channels.slice(i, i + 2).map(async channel => {
         try {
           const result = await getChannelVideos(channel.id)
           if (!result || !Array.isArray(result.videos)) throw new Error('No channel videos returned')

@@ -6,6 +6,7 @@ MacTube is an experimental fork of [FreeTube](https://github.com/FreeTubeApp/Fre
 
 - **Discover:** use YouTube home recommendations and related videos based on recent watch history. Video titles and IDs may be sent to YouTube to find related suggestions; refresh can still repeat videos if results are limited.
 - **Subscriptions:** keep subscribed-channel videos separate from discovery. Use local subscriptions or the signed-in YouTube feed; imports can be partial. If an account-feed refresh adds no videos, another part of the returned feed is shown first, with an option to restore YouTube’s order.
+- **Signed-in playback:** MacTube tries the saved TV account for playback. When Remember Watch History is enabled, it may report signed-in playback and progress to YouTube; existing local history is not bulk-uploaded. YouTube can still reject requests.
 - **Live video:** watch available live streams and use the existing live-chat viewer. The separate Live discovery tab has been removed.
 - **Make it yours:** choose app colors with the palette, switch light/dark themes, select a startup tab, and adjust video width and height independently.
 - **Optional YouTube sign-in:** import supported account data and access account features. Google can see authenticated requests; account imports and synchronization depend on YouTube and may be incomplete.
@@ -63,7 +64,7 @@ Available for Windows (10 and later), Mac (macOS 13 and later) & Linux thanks to
 
 ## How does it work?
 FreeTube uses a built in extractor to grab and serve data / videos. The [Invidious API](https://github.com/iv-org/invidious) can also optionally be used. FreeTube does not use any official APIs to obtain data. While YouTube can still see your video requests, it can no
-longer track you using cookies or JavaScript. Your subscriptions, playlists and history are stored locally on your computer and never sent out.
+longer track you using cookies or JavaScript. Local subscriptions, playlists and history are stored on your computer. The MacTube account features can also exchange data with YouTube; see the signed-in playback note above.
 
 > [!IMPORTANT]  
 > Using a VPN or Tor is highly recommended to hide your IP while using FreeTube.

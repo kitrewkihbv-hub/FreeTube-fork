@@ -11,7 +11,9 @@ const storeSource = fs.readFileSync('src/renderer/store/modules/youtube-account.
 let resolveFeed
 let rejectFeed
 let calls = 0
-const storeContext = vm.createContext({ setYouTubeAccountSubscription: async () => {}, getYouTubeAccountActivityFeed: () => { calls++; return new Promise((resolve, reject) => { resolveFeed = resolve; rejectFeed = reject }) } })
+let clock = Date.now()
+class Clock extends Date { static now() { return clock } }
+const storeContext = vm.createContext({ Date: Clock, setYouTubeAccountSubscription: async () => {}, getYouTubeAccountActivityFeed: () => { calls++; return new Promise((resolve, reject) => { resolveFeed = resolve; rejectFeed = reject }) } })
 vm.runInContext(storeSource, storeContext)
 const accountModule = storeContext.account
 accountModule.state = Vue.reactive(accountModule.state)
@@ -53,7 +55,7 @@ compiled = compiled.replace(/import \{ FontAwesomeIcon \} from '[^']+'/g, 'const
 compiled = compiled.replace(/import (\w+) from '[^']+'/g, (_, name) => `const ${name} = ${name === 'store' ? 'storeMock' : `mocks.${name}`}`)
 compiled = compiled.replace('export default', 'globalThis.component =')
 const sessionValues = new Map()
-const componentContext = vm.createContext({ Vue, mocks, storeMock: store, console: { error() {} }, sessionStorage: { getItem: key => sessionValues.get(key) ?? null, setItem: (key, val) => sessionValues.set(key, val), removeItem: key => sessionValues.delete(key) }, window: { setInterval, clearInterval, addEventListener() {}, removeEventListener() {} }, document: { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} } })
+const componentContext = vm.createContext({ Date: Clock, Vue, mocks, storeMock: store, console: { error() {} }, sessionStorage: { getItem: key => sessionValues.get(key) ?? null, setItem: (key, val) => sessionValues.set(key, val), removeItem: key => sessionValues.delete(key) }, window: { setInterval, clearInterval, addEventListener() {}, removeEventListener() {} }, document: { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} } })
 vm.runInContext(compiled, componentContext)
 const component = componentContext.component
 const renderer = Vue.createRenderer({
@@ -73,6 +75,7 @@ const mount = () => { const app = renderer.createApp(component); app.config.glob
 const text = node => (node.text ?? '') + (node.children ?? []).map(text).join('')
 const findButton = (node, label) => node.type === 'button' && node.text === label ? node : (node.children ?? []).map(child => findButton(child, label)).find(Boolean)
 const flush = async () => { await new Promise(resolve => setImmediate(resolve)); await Vue.nextTick() }
+const clickRefresh = () => { clock += 16000; findButton(root, 'Subscriptions.Refresh').props.onClick() }
 ;(async () => {
   let app = mount()
   await flush()
@@ -91,7 +94,7 @@ const flush = async () => { await new Promise(resolve => setImmediate(resolve));
   assert.match(text(root), /ACCOUNT VIDEO/, 'cached account videos remain after returning')
   assert.equal(calls, 1)
   // Manual refresh must start a new request without hiding the old videos.
-  findButton(root, 'Subscriptions.Refresh').props.onClick()
+  clickRefresh()
   await flush()
   assert.equal(calls, 2)
   assert.match(text(root), /ACCOUNT VIDEO/, 'cached videos stay visible while refreshing')
@@ -99,7 +102,7 @@ const flush = async () => { await new Promise(resolve => setImmediate(resolve));
   await flush()
   assert.match(text(root), /NEW ACCOUNT VIDEO/)
   // Returning after the five minute freshness interval triggers a background refresh.
-  accountModule.state.youtubeAccountFeedInfo.fetchedAt = Date.now() - 6 * 60 * 1000
+  accountModule.state.youtubeAccountFeedInfo.fetchedAt = clock - 6 * 60 * 1000
   app.unmount()
   app = mount()
   await flush()
@@ -108,21 +111,21 @@ const flush = async () => { await new Promise(resolve => setImmediate(resolve));
   resolveFeed({ videos: [{ type: 'video', videoId: 'three', title: 'LATEST ACCOUNT VIDEO' }], source: 'youtube', partial: false })
   await flush()
   assert.match(text(root), /LATEST ACCOUNT VIDEO/)
-  findButton(root, 'Subscriptions.Refresh').props.onClick()
+  clickRefresh()
   await flush()
   assert.equal(calls, 4)
   rejectFeed(new Error('offline'))
   await flush()
   assert.match(text(root), /LATEST ACCOUNT VIDEO/, 'failed refresh preserves cached videos')
   assert.match(text(root), /Subscriptions.YouTube Account Feed Refresh Error/)
-  findButton(root, 'Subscriptions.Refresh').props.onClick()
+  clickRefresh()
   await flush()
   assert.equal(calls, 5, 'manual refresh retries immediately after an error')
   resolveFeed({ videos: [{ type: 'video', videoId: 'three', title: 'LATEST ACCOUNT VIDEO' }], source: 'youtube', partial: false })
   await flush()
   assert.doesNotMatch(text(root), /Subscriptions.YouTube Account Feed Refresh Error/)
   // A subscription change during a refresh must not reintroduce an old feed.
-  findButton(root, 'Subscriptions.Refresh').props.onClick()
+  clickRefresh()
   await flush()
   assert.equal(calls, 6)
   const staleRequest = resolveFeed
@@ -140,24 +143,34 @@ const flush = async () => { await new Promise(resolve => setImmediate(resolve));
   const stableVideos = Array.from({ length: 6 }, (_, index) => ({ type: 'video', videoId: `stable${index}`, title: `SUB VIDEO ${index}`, authorId: 'subscribed' }))
   accountModule.mutations.setYouTubeAccountFeed(accountModule.state, stableVideos)
   await flush()
-  findButton(root, 'Subscriptions.Refresh').props.onClick()
+  clickRefresh()
   await flush()
   resolveFeed({ videos: stableVideos, source: 'youtube', partial: false })
   await flush()
   assert.match(text(root), /SUB VIDEO 3,SUB VIDEO 4,SUB VIDEO 5,SUB VIDEO 0/, 'unchanged feed is visibly rotated')
   assert.match(text(root), /Subscriptions.Account Feed Rotated/)
+  const callsBeforeCooldown = calls
+  findButton(root, 'Subscriptions.Refresh').props.onClick()
+  await flush()
+  assert.equal(calls, callsBeforeCooldown, 'rapid clicks reuse the recent account feed')
+  assert.match(text(root), /Subscriptions.Account Feed Cooldown/)
+  // Start the rotation again before checking the explicit restore control.
+  clickRefresh()
+  await flush()
+  resolveFeed({ videos: stableVideos, source: 'youtube', partial: false })
+  await flush()
   assert.equal(accountModule.state.youtubeAccountFeed[0].videoId, 'stable0', 'YouTube cached order is preserved')
   findButton(root, 'Subscriptions.Restore Feed Order').props.onClick()
   await flush()
   assert.match(text(root), /SUB VIDEO 0,SUB VIDEO 1,SUB VIDEO 2/)
   assert.doesNotMatch(text(root), /Subscriptions.Account Feed Rotated/)
-  findButton(root, 'Subscriptions.Refresh').props.onClick()
+  clickRefresh()
   await flush()
   resolveFeed({ videos: [{ type: 'video', videoId: 'added', title: 'NEW SUB VIDEO', authorId: 'subscribed' }, ...stableVideos], source: 'youtube' })
   await flush()
   assert.match(text(root), /Subscriptions.Account Feed New Results/)
   assert.match(text(root), /NEW SUB VIDEO,SUB VIDEO 0/, 'newly returned videos retain YouTube order')
-  findButton(root, 'Subscriptions.Refresh').props.onClick()
+  clickRefresh()
   await flush()
   rejectFeed(new Error('offline'))
   await flush()
@@ -166,7 +179,7 @@ const flush = async () => { await new Promise(resolve => setImmediate(resolve));
   // A small feed cannot always provide a different item.
   accountModule.mutations.setYouTubeAccountFeed(accountModule.state, [stableVideos[0]])
   await flush()
-  findButton(root, 'Subscriptions.Refresh').props.onClick()
+  clickRefresh()
   await flush()
   resolveFeed({ videos: [stableVideos[0]], source: 'youtube' })
   await flush()

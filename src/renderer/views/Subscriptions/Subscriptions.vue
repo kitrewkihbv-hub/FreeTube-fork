@@ -180,6 +180,13 @@
               {{ $t('Subscriptions.Account Feed Rotated') }}
             </p>
             <p
+              v-if="!accountFeedError && !accountFeedLoading && (accountRefreshStatus === 'cached' || accountRefreshStatus === 'cachedRotated')"
+              class="accountFeedInfo"
+              role="status"
+            >
+              {{ $t('Subscriptions.Account Feed Cooldown') }}
+            </p>
+            <p
               v-if="!accountFeedError && !accountFeedLoading && accountRefreshStatus === 'unchanged'"
               class="accountFeedInfo"
               role="status"
@@ -300,11 +307,12 @@ function restoreAccountFeedOrder() {
 
 async function requestAccountFeed(refresh = false, manual = false) {
   const previousIds = new Set(accountFeed.value.map(video => video.videoId).filter(Boolean))
+  const previousInfo = accountFeedInfo.value
   accountFeedError.value = false
   accountFeedLoading.value = true
   lastAccountFeedAttemptAt = Date.now()
   try {
-    await store.dispatch('grabYouTubeAccountFeed', { refresh })
+    await store.dispatch('grabYouTubeAccountFeed', { refresh, manual })
     // A subscription change or sign-out can invalidate this request while it runs.
     if (accountFeedCache.value !== null) {
       if (manual) {
@@ -316,10 +324,12 @@ async function requestAccountFeed(refresh = false, manual = false) {
         } else if (feed.length > 1) {
           const step = Math.min(20, Math.max(1, Math.floor(feed.length / 2)))
           accountFeedOffset.value = (accountFeedOffset.value + step) % feed.length
-          accountRefreshStatus.value = accountFeedOffset.value ? 'rotated' : 'unchanged'
+          accountRefreshStatus.value = accountFeedInfo.value === previousInfo
+            ? (accountFeedOffset.value ? 'cachedRotated' : 'cached')
+            : (accountFeedOffset.value ? 'rotated' : 'unchanged')
         } else {
           accountFeedOffset.value = 0
-          accountRefreshStatus.value = 'unchanged'
+          accountRefreshStatus.value = accountFeedInfo.value === previousInfo ? 'cached' : 'unchanged'
         }
       } else {
         restoreAccountFeedOrder()

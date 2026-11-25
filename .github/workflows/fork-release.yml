@@ -106,6 +106,7 @@ jobs:
           Build of the `arena/64591193-freetube-with-account` branch, from Build run ${{ steps.target.outputs.run_id }}.
 
           Changes in this build:
+          - Experiments with authenticated TV playback, credential refresh and optional signed-in watch reporting when Remember Watch History is on. YouTube may reject these requests.
           - If the YouTube subscription feed adds nothing on refresh, a different portion of the returned feed is shown first; you can restore YouTube order.
           - Discover refresh also requests YouTube related videos for watched or previously recommended videos, and reports new versus previously shown suggestions.
           - Signed-in YouTube home recommendations and watch-history-related searches remain separate from subscriptions.

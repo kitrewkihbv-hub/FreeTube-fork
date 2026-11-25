@@ -618,7 +618,8 @@ function runApp() {
 
         requestHeaders['Sec-Fetch-Site'] = 'same-origin'
         requestHeaders['Sec-Fetch-Mode'] = 'same-origin'
-        requestHeaders['X-Youtube-Bootstrap-Logged-In'] = 'false'
+        const authorization = Object.entries(requestHeaders).find(([key]) => key.toLowerCase() === 'authorization')?.[1]
+        requestHeaders['X-Youtube-Bootstrap-Logged-In'] = /^Bearer\s/i.test(authorization ?? '') ? 'true' : 'false'
       } else if (
         url.startsWith('https://www.youtube.com/watch') ||
         (urlObj.origin === 'www.youtube.com' && urlObj.pathname === '/')
