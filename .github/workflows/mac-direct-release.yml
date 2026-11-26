@@ -1,0 +1,86 @@
+# Build both Mac installers without using GitHub Actions artifact storage.
+# Trigger only by changing this workflow on the session branch.
+name: Mac Direct Release
+
+on:
+  push:
+    branches: [arena/64591193-freetube-with-account]
+    paths: [.github/workflows/mac-direct-release.yml]
+
+permissions: {}
+
+jobs:
+  mac-release:
+    runs-on: macos-15-intel
+    permissions:
+      contents: write
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.x
+          package-manager-cache: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 11
+          cache: false
+      - name: Install and test
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm run lint
+          for test in tests/*.cjs; do node "$test"; done
+      - name: Build Intel Mac
+        run: |
+          set -euo pipefail
+          pnpm run build
+          mkdir -p assets
+          cp build/MacTube-0.26.0.dmg assets/
+          cp build/MacTube-0.26.0-mac.zip assets/
+      - name: Build Apple Silicon Mac
+        run: |
+          set -euo pipefail
+          pnpm run build:arm64
+          cp build/MacTube-0.26.0-arm64.dmg assets/
+          cp build/MacTube-0.26.0-arm64-mac.zip assets/
+      - name: Verify architectures and extract app contents
+        run: |
+          set -euo pipefail
+          for arch in x64 arm64; do
+            if [ "$arch" = x64 ]; then zip=assets/MacTube-0.26.0-mac.zip; expected=x86_64; else zip=assets/MacTube-0.26.0-arm64-mac.zip; expected=arm64; fi
+            mkdir -p "scan/$arch"
+            ditto -x -k "$zip" "scan/$arch"
+            app="scan/$arch/MacTube.app"
+            test -d "$app"
+            lipo -verify_arch "$expected" "$app/Contents/MacOS/MacTube"
+            test -f "$app/Contents/Resources/app.asar"
+            pnpm dlx @electron/asar@3.4.1 extract "$app/Contents/Resources/app.asar" "scan/$arch/app-contents"
+          done
+      - name: Install and run ClamAV
+        run: |
+          set -euo pipefail
+          brew install clamav
+          mkdir -p "$RUNNER_TEMP/clamdb"
+          printf 'DatabaseDirectory %s\nDatabaseMirror database.clamav.net\n' "$RUNNER_TEMP/clamdb" > "$RUNNER_TEMP/freshclam.conf"
+          freshclam --config-file="$RUNNER_TEMP/freshclam.conf"
+          clamscan --database="$RUNNER_TEMP/clamdb" --recursive --infected --max-filesize=500M --max-scansize=1G scan
+      - name: Publish directly to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
+          Experimental MacTube build: attempts authenticated TV playback using the same visitor ID as the Web proof-token challenge. YouTube may still reject the token or request. Live playback with a real account and network has not been verified.
+
+          YouTube account watch reporting remains optional and experimental. Local history remains separate.
+
+          The Mac app bundles and extracted app archives were scanned with ClamAV; a scan cannot guarantee safety. These builds are ad-hoc signed and not notarized by Apple, so Gatekeeper may warn that Apple cannot verify the app. Such a warning is neither proof of malware nor proof of safety. We cannot recommend bypassing Gatekeeper; a warning-free install requires a Developer ID-signed and notarized release.
+
+          Download arm64 for Apple Silicon, or the file without arm64 for Intel. MacTube shares the existing FreeTube data directory, so back up your data before upgrading.
+          NOTES
+          gh release create mac-build-22 assets/MacTube-0.26.0.dmg assets/MacTube-0.26.0-arm64.dmg --target "$GITHUB_SHA" --title 'MacTube (mac-build-22)' --notes-file "$RUNNER_TEMP/release-notes.md"
