@@ -54,12 +54,21 @@ jobs:
           for arch in x64 arm64; do
             if [ "$arch" = x64 ]; then zip=assets/MacTube-0.26.0-mac.zip; expected=x86_64; else zip=assets/MacTube-0.26.0-arm64-mac.zip; expected=arm64; fi
             mkdir -p "scan/$arch"
-            ditto -x -k "$zip" "scan/$arch"
+            if ! ditto -x -k "$zip" "scan/$arch" > "$RUNNER_TEMP/verify.log" 2>&1; then
+              echo "::error::Failed to extract $arch ZIP: $(tail -3 "$RUNNER_TEMP/verify.log" | tr '\n' ' ')"; exit 1
+            fi
             app="scan/$arch/MacTube.app"
-            test -d "$app"
-            lipo -verify_arch "$expected" "$app/Contents/MacOS/MacTube"
-            test -f "$app/Contents/Resources/app.asar"
-            pnpm dlx @electron/asar@3.4.1 extract "$app/Contents/Resources/app.asar" "scan/$arch/app-contents"
+            if [ ! -d "$app" ]; then
+              echo "::error::Missing $arch app bundle: $(ls -la "scan/$arch" | tr '\n' ' ')"; exit 1
+            fi
+            executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
+            if ! lipo -verify_arch "$expected" "$app/Contents/MacOS/$executable" > "$RUNNER_TEMP/verify.log" 2>&1; then
+              echo "::error::Invalid $arch executable: $(tail -3 "$RUNNER_TEMP/verify.log" | tr '\n' ' ')"; exit 1
+            fi
+            if [ ! -f "$app/Contents/Resources/app.asar" ]; then echo "::error::Missing $arch app.asar"; exit 1; fi
+            if ! npx --yes @electron/asar@3.4.1 extract "$app/Contents/Resources/app.asar" "scan/$arch/app-contents" > "$RUNNER_TEMP/verify.log" 2>&1; then
+              echo "::error::Failed to extract $arch asar: $(tail -5 "$RUNNER_TEMP/verify.log" | tr '\n' ' ')"; exit 1
+            fi
           done
       - name: Install and run ClamAV
         run: |
