@@ -16,6 +16,92 @@
       class="videoArea"
     >
       <div class="videoAreaMargin">
+        <section
+          v-if="$route.query.music === '1' && !isLoading && videoTitle"
+          class="musicDeck"
+          :aria-label="$t('Music.Now playing')"
+        >
+          <div class="musicDeckInfo">
+            <img
+              :src="thumbnail"
+              alt=""
+              class="musicCover"
+            >
+            <div>
+              <p class="musicEyebrow">
+                {{ $t('Music.Now playing') }}
+              </p>
+              <h1 dir="auto">
+                {{ videoTitle }}
+              </h1>
+              <p dir="auto">
+                {{ channelName }}
+              </p>
+            </div>
+          </div>
+          <div class="musicControls">
+            <button
+              type="button"
+              :disabled="!watchingPlaylist"
+              :aria-pressed="musicShuffle"
+              :title="$t('Music.Shuffle playlists')"
+              @click="toggleMusicShuffle"
+            >
+              <font-awesome-icon :icon="['fas', 'random']" />
+            </button>
+            <button
+              type="button"
+              :disabled="!watchingPlaylist || !videoPlayerLoaded"
+              :title="$t('Music.Previous')"
+              @click="handleSkipToPrev"
+            >
+              <font-awesome-icon :icon="['fas', 'step-backward']" />
+            </button>
+            <button
+              type="button"
+              class="musicPlay"
+              :disabled="!videoPlayerLoaded"
+              :title="musicPlaying ? $t('Music.Pause') : $t('Music.Play')"
+              :aria-label="musicPlaying ? $t('Music.Pause') : $t('Music.Play')"
+              @click="toggleMusicPlayback"
+            >
+              <font-awesome-icon :icon="['fas', musicPlaying ? 'pause' : 'play']" />
+            </button>
+            <button
+              type="button"
+              :disabled="!videoPlayerLoaded"
+              :title="$t('Music.Next')"
+              @click="handleSkipToNext"
+            >
+              <font-awesome-icon :icon="['fas', 'step-forward']" />
+            </button>
+            <button
+              type="button"
+              class="musicCaptions"
+              :disabled="!videoPlayerLoaded"
+              :title="$t('Music.Captions')"
+              @click="toggleMusicCaptions"
+            >
+              {{ $t('Music.Captions short') }}
+            </button>
+          </div>
+          <div class="musicProgress">
+            <span>{{ musicTime(musicCurrentTime) }}</span>
+            <input
+              type="range"
+              min="0"
+              :max="Math.max(videoLengthSeconds, 0)"
+              :value="musicCurrentTime"
+              :disabled="!videoPlayerLoaded || !videoLengthSeconds"
+              :aria-label="$t('Music.Seek')"
+              @input="seekMusic"
+            >
+            <span>{{ musicTime(videoLengthSeconds) }}</span>
+          </div>
+          <p class="musicNote">
+            {{ $t('Music.Caption note') }}
+          </p>
+        </section>
         <ft-shaka-video-player
           v-if="!isLoading && (!isUpcoming || playabilityStatus === 'OK') && !errorMessage"
           ref="player"
@@ -49,6 +135,7 @@
           class="videoPlayer"
           @error="handlePlayerError"
           @loaded="handleVideoLoaded"
+          @playback-state-changed="musicPlaying = $event"
           @timeupdate="handleTimeUpdate"
           @ended="handleVideoEnded"
           @toggle-theatre-mode="useTheatreMode = !useTheatreMode"
@@ -216,6 +303,7 @@
         class="watchVideoSideBar watchVideoPlaylist"
         :class="{ theatrePlaylist: useTheatreMode }"
         @pause-player="pausePlayer"
+        @shuffle-changed="musicShuffle = $event"
       />
       <watch-video-recommendations
         v-if="!isLoading && !hideRecommendedVideos"

@@ -1,6 +1,7 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import Subscriptions from '../views/Subscriptions/Subscriptions.vue'
 import Discovery from '../views/Discovery/Discovery.vue'
+import Music from '../views/Music/Music.vue'
 import SubscribedChannels from '../views/SubscribedChannels/SubscribedChannels.vue'
 import ProfileSettings from '../views/ProfileSettings/ProfileSettings.vue'
 import Trending from '../views/Trending/Trending.vue'
@@ -34,6 +35,7 @@ const router = createRouter({
           { path: '/live', redirect: '/discover' },
         ]
       : []),
+    { path: '/music', name: 'music', meta: { title: 'Music' }, component: Music },
     {
       path: '/subscriptions',
       name: 'subscriptions',

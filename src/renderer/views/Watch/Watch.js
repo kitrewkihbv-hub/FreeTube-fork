@@ -81,6 +81,9 @@ export default defineComponent({
     'ft-age-restricted': FtAgeRestricted
   },
   beforeRouteLeave: async function (to, from, next) {
+    this.widgetControlsActive = false
+    this.stopLocalWidgetControls?.()
+    if (process.env.IS_ELECTRON) window.ftElectron.updateLocalPlayerState(null)
     this.handleRouteChange()
     window.removeEventListener('beforeunload', this.handleWatchProgressAutoSave)
     document.removeEventListener('keydown', this.resetAutoplayInterruptionTimeout)
@@ -109,6 +112,11 @@ export default defineComponent({
       firstLoad: true,
       useTheatreMode: false,
       videoPlayerLoaded: false,
+      musicPlaying: false,
+      musicShuffle: false,
+      musicCurrentTime: 0,
+      stopLocalWidgetControls: null,
+      widgetControlsActive: false,
       isFamilyFriendly: false,
       isLive: false,
       isLiveContent: false,
@@ -339,6 +347,17 @@ export default defineComponent({
     }
   },
   watch: {
+    videoTitle() { this.syncLocalPlayerState() },
+    channelName() { this.syncLocalPlayerState() },
+    videoPlayerLoaded() { this.syncLocalPlayerState() },
+    isLoading() { this.syncLocalPlayerState() },
+    errorMessage() { this.syncLocalPlayerState() },
+    musicPlaying() { this.syncLocalPlayerState() },
+    musicShuffle() { this.syncLocalPlayerState() },
+    watchingPlaylist(value) {
+      if (!value) this.musicShuffle = false
+      this.syncLocalPlayerState()
+    },
     async $route() {
       await this.reloadView()
     },
@@ -357,9 +376,45 @@ export default defineComponent({
     this.currentPlaybackRate = this.$store.getters.getDefaultPlayback
   },
   mounted: function () {
+    if (process.env.IS_ELECTRON) {
+      this.widgetControlsActive = true
+      this.stopLocalWidgetControls = window.ftElectron.onLocalPlayerCommand(this.handleLocalPlayerCommand)
+      this.syncLocalPlayerState()
+    }
     this.onMountedDependOnLocalStateLoading()
   },
   methods: {
+    syncLocalPlayerState() {
+      if (!process.env.IS_ELECTRON || !this.widgetControlsActive) return
+      const loaded = this.videoPlayerLoaded && !this.isLoading && !this.errorMessage && this.videoTitle
+      window.ftElectron.updateLocalPlayerState(loaded
+        ? {
+            title: this.videoTitle,
+            artist: this.channelName,
+            playing: this.musicPlaying,
+            shuffle: this.watchingPlaylist && this.musicShuffle,
+          }
+        : null)
+    },
+    handleLocalPlayerCommand(command) {
+      if (!this.videoPlayerLoaded || this.isLoading || this.errorMessage) return
+      switch (command) {
+        case 'toggle': this.toggleMusicPlayback(); break
+        case 'next': this.handleSkipToNext(); break
+        case 'prev': this.handleSkipToPrev(); break
+        case 'shuffle': this.toggleMusicShuffle(); break
+      }
+    },
+    toggleMusicPlayback() { this.$refs.player?.togglePlayback() },
+    toggleMusicShuffle() { this.$refs.watchVideoPlaylist?.toggleShuffle() },
+    toggleMusicCaptions() {
+      if (!this.$refs.player?.toggleCaptions()) showToast(this.t('Music.No captions'))
+    },
+    seekMusic(event) {
+      const seconds = Number(event.target.value)
+      if (Number.isFinite(seconds)) this.$refs.player?.setCurrentTime(seconds)
+    },
+    musicTime(seconds) { return formatDurationAsTimestamp(Math.max(0, Math.floor(seconds || 0))) },
     async reloadView(preferSignedOut = false) {
       if (this.isReloadingView) { return }
 
@@ -399,6 +454,8 @@ export default defineComponent({
 
     resetVideoState: function () {
       this.accountWatchTracker = null
+      this.musicPlaying = false
+      this.musicCurrentTime = 0
       this.usedAccountPlayback = false
       this.isLoading = true
       this.isFamilyFriendly = false
@@ -1234,6 +1291,7 @@ export default defineComponent({
      * @param {number} currentSeconds
      */
     handleTimeUpdate: function (currentSeconds) {
+      this.musicCurrentTime = currentSeconds
       this.updateCurrentChapter(currentSeconds)
       if (this.rememberHistory && !this.isUpcoming && this.$refs.player?.hasLoaded && !this.$refs.player.isPaused()) {
         this.accountWatchTracker?.update(currentSeconds)
@@ -1528,7 +1586,8 @@ export default defineComponent({
             this.$refs.watchVideoPlaylist.playNextVideo()
           } else {
             this.$router.push({
-              path: `/watch/${nextVideoId}`
+              path: `/watch/${nextVideoId}`,
+              query: this.$route.query.music === '1' ? { music: '1' } : {}
             })
             showToast(this.t('Playing Next Video'))
           }
@@ -1557,7 +1616,8 @@ export default defineComponent({
         this.$refs.watchVideoPlaylist?.playNextVideo()
       } else if (!this.hideRecommendedVideos && this.nextRecommendedVideo) {
         this.$router.push({
-          path: `/watch/${this.nextRecommendedVideo.videoId}`
+          path: `/watch/${this.nextRecommendedVideo.videoId}`,
+          query: this.$route.query.music === '1' ? { music: '1' } : {}
         })
         showToast(this.t('Playing Next Video'))
       }

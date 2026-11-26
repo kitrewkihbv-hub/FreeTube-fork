@@ -75,7 +75,9 @@ jobs:
         run: |
           set -euo pipefail
           cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
-          Experimental MacTube build: attempts authenticated TV playback using the same visitor ID as the Web proof-token challenge. YouTube may still reject the token or request. Live playback with a real account and network has not been verified.
+          Adds a Music section, a music-focused player with available video captions, and a local desktop-widget control API on 127.0.0.1:8765. The API is unauthenticated and allows all web origins: other local programs and websites that can reach local-network services may read what is playing or control playback. Previous and shuffle require a playlist. Captions depend on the video and are not guaranteed lyrics.
+
+          Experimental playback continues to attempt authenticated TV playback using the same visitor ID as the Web proof-token challenge. YouTube may still reject the token or request. Live playback with a real account and network has not been verified.
 
           YouTube account watch reporting remains optional and experimental. Local history remains separate.
 
@@ -83,7 +85,7 @@ jobs:
 
           Download arm64 for Apple Silicon, or the file without arm64 for Intel. MacTube shares the existing FreeTube data directory, so back up your data before upgrading.
           NOTES
-          gh release create mac-build-22 assets/MacTube-0.26.0.dmg assets/MacTube-0.26.0-arm64.dmg assets/MacTube-0.26.0-mac.zip assets/MacTube-0.26.0-arm64-mac.zip --draft --target "$GITHUB_SHA" --title 'MacTube (mac-build-22)' --notes-file "$RUNNER_TEMP/release-notes.md"
+          gh release create mac-build-23 assets/MacTube-0.26.0.dmg assets/MacTube-0.26.0-arm64.dmg assets/MacTube-0.26.0-mac.zip assets/MacTube-0.26.0-arm64-mac.zip --draft --target "$GITHUB_SHA" --title 'MacTube (mac-build-23)' --notes-file "$RUNNER_TEMP/release-notes.md"
 
   scan-and-publish:
     needs: mac-release
@@ -103,7 +105,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p assets
-          gh release download mac-build-22 --pattern '*.zip' --dir assets
+          gh release download mac-build-23 --pattern '*.zip' --dir assets
           test -f assets/MacTube-0.26.0-mac.zip
           test -f assets/MacTube-0.26.0-arm64-mac.zip
       - name: Install ClamAV and update signatures
@@ -131,4 +133,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-        run: gh release edit mac-build-22 --draft=false
+        run: gh release edit mac-build-23 --draft=false

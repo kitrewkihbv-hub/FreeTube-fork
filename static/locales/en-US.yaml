@@ -1373,6 +1373,30 @@ Theme Quick Switch:
   Use Light: Switch to light theme
   Use Dark: Switch to dark theme
 
+Music:
+  Title: Music
+  Eyebrow: MacTube music
+  Description: Find music, open a playlist, and enjoy a music-focused player with controls and available captions.
+  Search: Search
+  Search placeholder: Search for a song, artist, or playlist
+  Library: Your library
+  Favorites: Liked videos
+  Favorites description: Play your saved favorites
+  Playlists: Playlists
+  Playlists description: Browse your local playlists
+  Hint: Search for a song or open a playlist. Previous and shuffle work within playlists; next can also use a recommendation.
+  Now playing: Now playing
+  Shuffle playlists: Shuffle playlist
+  Previous: Previous track
+  Next: Next track
+  Play: Play
+  Pause: Pause
+  Captions: Toggle captions
+  Captions short: CC
+  No captions: No captions are available for this video.
+  Caption note: Captions appear on the video when available. They may not be lyrics or available for every song.
+  Seek: Playback position
+
 Discovery:
   Discover: Discover
   Live: Live

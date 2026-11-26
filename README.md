@@ -188,3 +188,11 @@ will. Specifically you can redistribute and/or modify it under the terms of the
 [GNU Affero General Public License](https://www.gnu.org/licenses/agpl-3.0.html) as
 published by the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.  
+
+### Music and the local desktop-widget API
+
+Music in the sidebar opens music search and your playlists. Songs opened through this section use the music-focused player; the existing player remains visible for captions and its full controls. Captions are the video's available captions, not a guaranteed lyrics service. Previous and shuffle work when playing a playlist; next uses the playlist or the existing next recommendation. Outside those situations the corresponding control does nothing. Artist is the YouTube channel name, not necessarily verified song-artist metadata.
+
+The Electron app starts an HTTP interface on **127.0.0.1:8765** (IPv4 loopback only). `GET /status` returns `{"title":"","artist":"","playing":false,"shuffle":false}` when no track is loaded. `GET /prev`, `/next`, `/toggle`, and `/shuffle` dispatch the same actions as the in-app controls and return `{"ok":true}`; this acknowledges dispatch, not that playback, a next item, or a playlist exists. Responses are not cached. If the port is occupied, the app logs an error and continues without this interface. If more than one window has a player, it targets a playing window first, then the most recently updated loaded player.
+
+**Privacy/security:** this interface has no password and allows all web origins as requested. Any local program, and potentially a website open in a browser that permits local-network requests, can read the title/channel and control playback. It exposes no account credentials but is not restricted to your widget. Do not use this interface if that access is unacceptable; close MacTube to stop it. The API binds only to loopback, not your LAN. DNS-rebinding hostnames are rejected; use `http://127.0.0.1:8765` or `http://localhost:8765`. Browser local-network protections can still block access, depending on the widget and browser.

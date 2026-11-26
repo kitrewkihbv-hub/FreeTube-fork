@@ -10,6 +10,8 @@ const IpcChannels = {
   CREATE_NEW_WINDOW: 'create-new-window',
   NATIVE_THEME_UPDATE: 'native-theme-update',
   APP_READY: 'app-ready',
+  LOCAL_PLAYER_STATE: 'local-player-state',
+  LOCAL_PLAYER_COMMAND: 'local-player-command',
   RELAUNCH_REQUEST: 'relaunch-request',
 
   SEARCH_INPUT_HANDLING_READY: 'search-input-handling-ready',

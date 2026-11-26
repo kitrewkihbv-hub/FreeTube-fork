@@ -920,6 +920,7 @@ const playlistIconSize = computed(() => props.appearance === 'watchPlaylistItem'
 
 const watchPageLinkQuery = computed(() => {
   const query = {}
+  if (route.query.music === '1') query.music = '1'
 
   if (playlistIdFinal.value) {
     query.playlistId = playlistIdFinal.value

@@ -1134,6 +1134,7 @@ function handleVideoSearchQueryChange(value) {
 async function saveStateInRouter(query) {
   const routeQuery = {
     playlistType: route.query.playlistType,
+    music: route.query.music === '1' ? '1' : undefined,
   }
 
   if (query !== '') {

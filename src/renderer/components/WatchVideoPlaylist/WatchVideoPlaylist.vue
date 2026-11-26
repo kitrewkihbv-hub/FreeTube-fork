@@ -227,7 +227,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['pause-player'])
+const emit = defineEmits(['pause-player', 'shuffle-changed'])
 
 const { locale, t } = useI18n()
 const router = useRouter()
@@ -235,6 +235,7 @@ const router = useRouter()
 const isLoading = ref(false)
 const isCollapsed = ref(false)
 const shuffleEnabled = ref(false)
+watch(shuffleEnabled, value => emit('shuffle-changed', value))
 const loopEnabled = ref(false)
 const reversePlaylist = ref(false)
 const channelId = ref('')
@@ -554,13 +555,15 @@ function playNextVideo() {
   const targetList = shuffleEnabled.value ? randomizedPlaylistItems.value : playlistItems.value
 
   const targetPlaylistItem = targetList[targetVideoIndex]
+  if (!targetPlaylistItem) return
 
   const routerPushPayload = {
     path: `/watch/${targetPlaylistItem.videoId}`,
     query: {
       playlistId: props.playlistId,
       playlistType: props.playlistType,
-      playlistItemId: targetPlaylistItem.playlistItemId
+      playlistItemId: targetPlaylistItem.playlistItemId,
+      music: router.currentRoute.value.query.music === '1' ? '1' : undefined
     }
   }
 
@@ -619,6 +622,7 @@ function playPreviousVideo() {
   const targetList = shuffleEnabled.value ? randomizedPlaylistItems.value : playlistItems.value
 
   const targetPlaylistItem = targetList[targetVideoIndex]
+  if (!targetPlaylistItem) return
 
   router.push(
     {
@@ -626,7 +630,8 @@ function playPreviousVideo() {
       query: {
         playlistId: props.playlistId,
         playlistType: props.playlistType,
-        playlistItemId: targetPlaylistItem.playlistItemId
+        playlistItemId: targetPlaylistItem.playlistItemId,
+        music: router.currentRoute.value.query.music === '1' ? '1' : undefined
       }
     }
   )
@@ -867,6 +872,7 @@ const shouldStopDueToPlaylistEnd = computed(() => {
 })
 
 defineExpose({
+  toggleShuffle,
   playNextVideo,
   playPreviousVideo,
   shouldStopDueToPlaylistEnd,

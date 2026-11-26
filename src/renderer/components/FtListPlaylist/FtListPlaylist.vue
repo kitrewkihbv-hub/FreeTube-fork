@@ -95,6 +95,7 @@
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 
 import FtIconButton from '../FtIconButton/FtIconButton.vue'
 
@@ -159,10 +160,12 @@ const thumbnailForDisplay = computed(() => {
 const isUserPlaylist = computed(() => props.data._id != null)
 
 // For `router-link` attribute `to`
+const route = useRoute()
 const playlistPageLinkTo = computed(() => ({
   path: `/playlist/${playlistId}`,
   query: {
     playlistType: isUserPlaylist.value ? 'user' : '',
+    music: route.query.music === '1' ? '1' : undefined,
     searchQueryText: props.searchQueryText,
   },
 }))

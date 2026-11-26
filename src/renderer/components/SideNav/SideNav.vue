@@ -27,6 +27,21 @@
         </p>
       </router-link>
       <router-link
+        class="navOption topNavOption mobileShow"
+        role="button"
+        to="/music"
+        :title="$t('Music.Title')"
+      >
+        <div class="thumbnailContainer">
+          <FontAwesomeIcon
+            :icon="['fas', 'music']"
+            class="navIcon"
+            :class="applyNavIconExpand"
+          />
+        </div>
+        <p class="navLabel">{{ $t('Music.Title') }}</p>
+      </router-link>
+      <router-link
         class="navOption topNavOption mobileShow "
         role="button"
         to="/subscriptions"

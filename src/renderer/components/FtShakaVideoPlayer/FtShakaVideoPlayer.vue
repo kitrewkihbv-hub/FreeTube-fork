@@ -334,6 +334,7 @@ const props = defineProps({
 const emit = defineEmits([
   'error',
   'loaded',
+  'playback-state-changed',
   'ended',
   'timeupdate',
   'toggle-autoplay',
@@ -1222,6 +1223,7 @@ watch(locale, setLocale)
 // #region video event handlers
 
 function handlePlay() {
+  emit('playback-state-changed', true)
   if (process.env.IS_ELECTRON) {
     window.ftElectron.startPowerSaveBlocker()
   }
@@ -1232,6 +1234,7 @@ function handlePlay() {
 }
 
 function handlePause() {
+  emit('playback-state-changed', false)
   stopPowerSaveBlocker()
 
   if ('mediaSession' in navigator) {
@@ -1240,6 +1243,7 @@ function handlePause() {
 }
 
 function handleEnded() {
+  emit('playback-state-changed', false)
   stopPowerSaveBlocker()
 
   if ('mediaSession' in navigator) {
@@ -2484,20 +2488,7 @@ function keyboardShortcutHandler(event) {
       changePlayBackRate(videoPlaybackRateInterval.value, true)
       break
     case KeyboardShortcuts.VIDEO_PLAYER.GENERAL.CAPTIONS: {
-      // Toggle caption/subtitles
-
-      const textTracks = player.getTextTracks()
-      if (textTracks.length > 0) {
-        event.preventDefault()
-
-        if (textTracks.some(track => track.active)) {
-          player.selectTextTrack(null)
-        } else {
-          player.selectTextTrack(textTracks[0])
-        }
-
-        showOverlayControls()
-      }
+      if (toggleCaptions()) event.preventDefault()
       break
     }
     case KeyboardShortcuts.VIDEO_PLAYER.GENERAL.VOLUME_UP:
@@ -3366,8 +3357,27 @@ async function destroyPlayer() {
   return uiState
 }
 
+function toggleCaptions() {
+  const tracks = player?.getTextTracks() ?? []
+  if (!tracks.length) return false
+  player.selectTextTrack(tracks.some(track => track.active) ? null : tracks[0])
+  showOverlayControls()
+  return true
+}
+
+function togglePlayback() {
+  if (!video.value) return
+  if (video.value.paused) {
+    video.value.play().catch(error => console.warn('Could not start playback:', error))
+  } else {
+    video.value.pause()
+  }
+}
+
 defineExpose({
   hasLoaded,
+  togglePlayback,
+  toggleCaptions,
 
   isPaused: () => video.value.paused,
   pause: () => video.value.pause(),

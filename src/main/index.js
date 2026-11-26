@@ -31,6 +31,7 @@ import packageDetails from '../../package.json'
 import { handleOpenInExternalPlayer } from './externalPlayer'
 import { generatePoToken } from './poTokenGenerator'
 import { isFreeTubeUrl } from './utils'
+import { startLocalControlServer } from './localControlServer.cjs'
 import {
   cancelSignIn,
   getAccountTokens,
@@ -100,6 +101,52 @@ function runApp() {
   ])
 
   const ROOT_APP_URL = process.env.NODE_ENV === 'development' ? 'http://localhost:9080' : 'app://bundle/index.html'
+
+  // Track playback per window. Prefer a currently playing window, then the most
+  // recently active loaded player; a closed/navigated window cannot stay stale.
+  const localPlayers = new Map()
+  const trackedPlayerWindows = new WeakSet()
+  let playerSequence = 0
+  const emptyPlayerState = { title: '', artist: '', playing: false, shuffle: false }
+  function activeLocalPlayer() {
+    return [...localPlayers.values()]
+      .filter(entry => !entry.sender.isDestroyed())
+      .sort((a, b) => Number(b.state.playing) - Number(a.state.playing) || b.sequence - a.sequence)[0]
+  }
+  const localControlServer = startLocalControlServer({
+    getStatus: () => activeLocalPlayer()?.state ?? emptyPlayerState,
+    onCommand: command => {
+      const entry = activeLocalPlayer()
+      if (entry && !entry.sender.isDestroyed()) entry.sender.send(IpcChannels.LOCAL_PLAYER_COMMAND, command)
+    },
+  })
+  app.on('will-quit', () => localControlServer.close())
+  ipcMain.on(IpcChannels.LOCAL_PLAYER_STATE, (event, value) => {
+    if (!event.senderFrame || !isFreeTubeUrl(event.senderFrame.url) || event.senderFrame !== event.sender.mainFrame) return
+    const sender = event.sender
+    if (!value || typeof value.title !== 'string' || !value.title) {
+      localPlayers.delete(sender.id)
+      return
+    }
+    if (!trackedPlayerWindows.has(sender)) {
+      trackedPlayerWindows.add(sender)
+      sender.once('destroyed', () => localPlayers.delete(sender.id))
+      sender.on('render-process-gone', () => localPlayers.delete(sender.id))
+      sender.on('did-start-navigation', (_, __, isInPlace, isMainFrame) => {
+        if (isMainFrame && !isInPlace) localPlayers.delete(sender.id)
+      })
+    }
+    localPlayers.set(sender.id, {
+      sender,
+      sequence: ++playerSequence,
+      state: {
+        title: value.title.slice(0, 500),
+        artist: typeof value.artist === 'string' ? value.artist.slice(0, 500) : '',
+        playing: value.playing === true,
+        shuffle: value.shuffle === true,
+      }
+    })
+  })
 
   let backendPreference = 'local'
   let backendFallback = true
