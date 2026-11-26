@@ -62,8 +62,10 @@ jobs:
               echo "::error::Missing $arch app bundle: $(ls -la "scan/$arch" | tr '\n' ' ')"; exit 1
             fi
             executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
-            if ! lipo -verify_arch "$expected" "$app/Contents/MacOS/$executable" > "$RUNNER_TEMP/verify.log" 2>&1; then
-              echo "::error::Invalid $arch executable: $(tail -3 "$RUNNER_TEMP/verify.log" | tr '\n' ' ')"; exit 1
+            binary="$app/Contents/MacOS/$executable"
+            if [ ! -f "$binary" ]; then echo "::error::Missing $arch executable: $binary"; exit 1; fi
+            if ! lipo -archs "$binary" > "$RUNNER_TEMP/verify.log" 2>&1 || ! grep -wq "$expected" "$RUNNER_TEMP/verify.log"; then
+              echo "::error::Invalid $arch executable: $(head -5 "$RUNNER_TEMP/verify.log" | tr '\n' ' ')"; exit 1
             fi
             if [ ! -f "$app/Contents/Resources/app.asar" ]; then echo "::error::Missing $arch app.asar"; exit 1; fi
             if ! npx --yes @electron/asar@3.4.1 extract "$app/Contents/Resources/app.asar" "scan/$arch/app-contents" > "$RUNNER_TEMP/verify.log" 2>&1; then
