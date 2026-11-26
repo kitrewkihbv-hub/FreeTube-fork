@@ -68,19 +68,8 @@ jobs:
               echo "::error::Invalid $arch executable: $(head -5 "$RUNNER_TEMP/verify.log" | tr '\n' ' ')"; exit 1
             fi
             if [ ! -f "$app/Contents/Resources/app.asar" ]; then echo "::error::Missing $arch app.asar"; exit 1; fi
-            if ! npx --yes @electron/asar@3.4.1 extract "$app/Contents/Resources/app.asar" "scan/$arch/app-contents" > "$RUNNER_TEMP/verify.log" 2>&1; then
-              echo "::error::Failed to extract $arch asar: $(tail -5 "$RUNNER_TEMP/verify.log" | tr '\n' ' ')"; exit 1
-            fi
           done
-      - name: Install and run ClamAV
-        run: |
-          set -euo pipefail
-          brew install clamav
-          mkdir -p "$RUNNER_TEMP/clamdb"
-          printf 'DatabaseDirectory %s\nDatabaseMirror database.clamav.net\n' "$RUNNER_TEMP/clamdb" > "$RUNNER_TEMP/freshclam.conf"
-          freshclam --config-file="$RUNNER_TEMP/freshclam.conf"
-          clamscan --database="$RUNNER_TEMP/clamdb" --recursive --infected --max-filesize=500M --max-scansize=1G scan
-      - name: Publish directly to GitHub Release
+      - name: Upload installers to an unpublished draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -94,4 +83,52 @@ jobs:
 
           Download arm64 for Apple Silicon, or the file without arm64 for Intel. MacTube shares the existing FreeTube data directory, so back up your data before upgrading.
           NOTES
-          gh release create mac-build-22 assets/MacTube-0.26.0.dmg assets/MacTube-0.26.0-arm64.dmg --target "$GITHUB_SHA" --title 'MacTube (mac-build-22)' --notes-file "$RUNNER_TEMP/release-notes.md"
+          gh release create mac-build-22 assets/MacTube-0.26.0.dmg assets/MacTube-0.26.0-arm64.dmg assets/MacTube-0.26.0-mac.zip assets/MacTube-0.26.0-arm64-mac.zip --draft --target "$GITHUB_SHA" --title 'MacTube (mac-build-22)' --notes-file "$RUNNER_TEMP/release-notes.md"
+
+  scan-and-publish:
+    needs: mac-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 45
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.x
+          package-manager-cache: false
+      - name: Download draft app bundles
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          gh release download mac-build-22 --pattern '*.zip' --dir assets
+          test -f assets/MacTube-0.26.0-mac.zip
+          test -f assets/MacTube-0.26.0-arm64-mac.zip
+      - name: Install ClamAV and update signatures
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y clamav clamav-freshclam unzip
+          sudo systemctl stop clamav-freshclam || true
+          sudo freshclam
+      - name: Extract and scan both app bundles
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/asar-tool"
+          npm install --prefix "$RUNNER_TEMP/asar-tool" --ignore-scripts @electron/asar@3.4.1
+          for zip in assets/*.zip; do
+            dir="scan/$(basename "$zip" .zip)"
+            mkdir -p "$dir"
+            unzip -q "$zip" -d "$dir"
+            archive="$dir/MacTube.app/Contents/Resources/app.asar"
+            test -f "$archive"
+            node "$RUNNER_TEMP/asar-tool/node_modules/@electron/asar/bin/asar.js" extract "$archive" "$dir/app-contents"
+          done
+          clamscan --recursive --infected --max-filesize=500M --max-scansize=1G scan
+      - name: Publish verified draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release edit mac-build-22 --draft=false
