@@ -24,6 +24,7 @@ import { getYouTubeAccountSubscriptionTabs } from './youtubeAccountSubscriptions
 import { loadAccountActivity } from './youtubeAccountActivity'
 import { createYouTubeWatchTracker } from './youtubeWatchTracker'
 import { hasLiveBadge } from './discoveryFeed'
+import { parseMusicSearchResults } from './musicSearch.cjs'
 
 const TRACKING_PARAM_NAMES = [
   'utm_source',
@@ -1944,6 +1945,19 @@ export async function getLocalRelatedRecommendations(videoId, safetyMode = false
 }
 
 // #endregion YouTube account
+
+/** Search YouTube Music, without changing the standard video-search session. */
+export async function getLocalMusicSearch(query, type, safetyMode) {
+  const innertube = await createInnertube({ safetyMode })
+  const response = await innertube.music.search(query, { type: type === 'video' ? 'video' : 'song' })
+  return { results: parseMusicSearchResults(response), continuation: response.has_continuation ? response : null }
+}
+
+/** Continue a filtered YouTube Music search without serializing account data. */
+export async function getLocalMusicSearchContinuation(continuation) {
+  const response = await continuation.getContinuation()
+  return { results: parseMusicSearchResults(response), continuation: response.has_continuation ? response : null }
+}
 
 /**
  * @param {string} query

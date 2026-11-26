@@ -327,3 +327,39 @@
     }
   }
 }
+
+.videoLayout.musicSession {
+  grid-template: 'video sidebar' auto 'info sidebar' auto / minmax(0, 1fr) minmax(260px, 320px);
+  gap: 20px;
+  max-inline-size: 1260px;
+  margin-inline: auto;
+
+  @media (width <= 900px) {
+    @include single-column-template;
+  }
+}
+
+.musicDeckTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-block-end: 20px;
+}
+
+.musicBack {
+  color: #e0c9fa;
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.musicDetails {
+  color: #e0c9fa;
+  background: rgb(255 255 255 / 8%);
+  border: 1px solid rgb(255 255 255 / 15%);
+  border-radius: 20px;
+  font-size: 12px;
+  cursor: pointer;
+  padding-block: 7px;
+  padding-inline: 12px;
+}

@@ -1376,6 +1376,31 @@ Theme Quick Switch:
 Music:
   Title: Music
   Eyebrow: MacTube music
+  Logo dot: "."
+  Number short: "#"
+  New eyebrow: Your soundtrack starts here
+  Hero title: Find your sound.
+  Hero description: Search for songs and music videos, or jump back into your own playlists.
+  Start searching: Find music
+  Your collection: Made for you
+  Search results: Search results
+  Search source: Results from YouTube Music
+  Back to music: Music home
+  Show details: Show video details
+  Hide details: Hide video details
+  Result type: Result type
+  Songs: Songs
+  Music videos: Music videos
+  Loading: Loading music…
+  Search failed: Music search is unavailable right now. Try again in a moment.
+  Try again: Try again
+  No results: No music results found. Try another search.
+  More results: Show more
+  More failed: Could not load more results. Try again.
+  Track: Track
+  Album: Album
+  Duration: Time
+  Unknown artist: Unknown artist
   Description: Find music, open a playlist, and enjoy a music-focused player with controls and available captions.
   Search: Search
   Search placeholder: Search for a song, artist, or playlist

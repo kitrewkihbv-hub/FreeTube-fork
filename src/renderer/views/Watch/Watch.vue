@@ -3,6 +3,7 @@
     class="videoLayout"
     :class="{
       isLoading,
+      musicSession: $route.query.music === '1',
       useTheatreMode: useTheatreMode && !isLoading,
       noSidebar: !theatrePossible
     }"
@@ -21,6 +22,20 @@
           class="musicDeck"
           :aria-label="$t('Music.Now playing')"
         >
+          <div class="musicDeckTop">
+            <router-link
+              to="/music"
+              class="musicBack"
+            ><font-awesome-icon :icon="['fas', 'arrow-left']" /> {{ $t('Music.Back to music') }}</router-link>
+            <button
+              type="button"
+              class="musicDetails"
+              :aria-pressed="musicShowDetails"
+              @click="musicShowDetails = !musicShowDetails"
+            >
+              {{ musicShowDetails ? $t('Music.Hide details') : $t('Music.Show details') }}
+            </button>
+          </div>
           <div class="musicDeckInfo">
             <img
               :src="thumbnail"
@@ -215,6 +230,7 @@
     />
     <div
       v-if="(isFamilyFriendly || !showFamilyFriendlyOnly)"
+      v-show="$route.query.music !== '1' || musicShowDetails"
       class="infoArea"
     >
       <watch-video-info

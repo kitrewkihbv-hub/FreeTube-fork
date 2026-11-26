@@ -18,6 +18,7 @@ const playlist = { toggleShuffle: () => calls.push('shuffle') }
 const instance = {
   ...methods, widgetControlsActive: true, videoPlayerLoaded: true, isLoading: false, errorMessage: null,
   videoTitle: 'Song', channelName: 'Artist', musicPlaying: true, musicShuffle: false, watchingPlaylist: true,
+  $route: { query: { music: '1' } },
   $refs: { player, watchVideoPlaylist: playlist },
   handleSkipToNext: () => calls.push('next'), handleSkipToPrev: () => calls.push('prev'), t: x => x,
 }
@@ -38,9 +39,15 @@ instance.syncLocalPlayerState()
 assert.equal(states.at(-1), null)
 instance.handleLocalPlayerCommand('toggle')
 assert.equal(calls.length, 4, 'commands do nothing while the player is loading')
+instance.isLoading = false
+instance.$route.query.music = undefined
+instance.syncLocalPlayerState()
+assert.equal(states.at(-1), null, 'ordinary videos are not exposed to the widget')
+instance.handleLocalPlayerCommand('toggle')
+assert.equal(calls.length, 4, 'ordinary videos cannot be controlled by the widget')
 instance.widgetControlsActive = false
 instance.syncLocalPlayerState()
-assert.equal(states.length, 4, 'a leaving view cannot republish stale state')
+assert.equal(states.length, 5, 'a leaving view cannot republish stale state')
 
 const playerSource = fs.readFileSync('src/renderer/components/FtShakaVideoPlayer/FtShakaVideoPlayer.vue', 'utf8')
 const playlistSource = fs.readFileSync('src/renderer/components/WatchVideoPlaylist/WatchVideoPlaylist.vue', 'utf8')

@@ -80,3 +80,22 @@
     block-size: 65vh;
   }
 }
+
+/* A self-contained music palette; user appearance settings are never changed. */
+.app.musicMode {
+  --primary-text-color: #f4eff8;
+  --secondary-text-color: #bcb2c7;
+  --tertiary-text-color: #a79caf;
+  --title-color: #fff;
+  --bg-color: #100e15;
+  --card-bg-color: #211b2a;
+  --secondary-card-bg-color: #19151f;
+  --side-nav-color: #121017;
+  --side-nav-hover-color: #2d2437;
+  --side-nav-active-color: #3d2a50;
+  --search-bar-color: #302938;
+  --primary-shadow-color: rgb(0 0 0 / 50%);
+
+  background: #100e15;
+  color: var(--primary-text-color);
+}

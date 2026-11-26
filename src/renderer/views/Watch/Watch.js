@@ -115,6 +115,7 @@ export default defineComponent({
       musicPlaying: false,
       musicShuffle: false,
       musicCurrentTime: 0,
+      musicShowDetails: false,
       stopLocalWidgetControls: null,
       widgetControlsActive: false,
       isFamilyFriendly: false,
@@ -359,6 +360,7 @@ export default defineComponent({
       this.syncLocalPlayerState()
     },
     async $route() {
+      this.syncLocalPlayerState()
       await this.reloadView()
     },
     userPlaylistsReady() {
@@ -386,7 +388,7 @@ export default defineComponent({
   methods: {
     syncLocalPlayerState() {
       if (!process.env.IS_ELECTRON || !this.widgetControlsActive) return
-      const loaded = this.videoPlayerLoaded && !this.isLoading && !this.errorMessage && this.videoTitle
+      const loaded = this.$route.query.music === '1' && this.videoPlayerLoaded && !this.isLoading && !this.errorMessage && this.videoTitle
       window.ftElectron.updateLocalPlayerState(loaded
         ? {
             title: this.videoTitle,
@@ -397,7 +399,7 @@ export default defineComponent({
         : null)
     },
     handleLocalPlayerCommand(command) {
-      if (!this.videoPlayerLoaded || this.isLoading || this.errorMessage) return
+      if (this.$route.query.music !== '1' || !this.videoPlayerLoaded || this.isLoading || this.errorMessage) return
       switch (command) {
         case 'toggle': this.toggleMusicPlayback(); break
         case 'next': this.handleSkipToNext(); break

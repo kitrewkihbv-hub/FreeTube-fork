@@ -3,6 +3,7 @@
     v-if="dataReady"
     class="app"
     :class="{
+      musicMode: isMusicSection,
       hideOutlines: outlinesHidden,
       isLocaleRightToLeft: isLocaleRightToLeft,
       isSideNavOpen: isSideNavOpen,
@@ -128,6 +129,7 @@ import store from './store/index'
 import packageDetails from '../../package.json'
 import { openExternalLink, openInternalPath, showToast } from './helpers/utils'
 import { translateWindowTitle } from './helpers/strings'
+import { isMusicRoute } from './helpers/musicMode'
 import { loadLocale } from './i18n/index'
 import { getLocalClip } from './helpers/api/local.js'
 import { getClipInvidious } from './helpers/api/invidious.js'
@@ -135,6 +137,13 @@ import { getClipInvidious } from './helpers/api/invidious.js'
 const route = useRoute()
 const router = useRouter()
 const { locale, t } = useI18n()
+
+// Music stays active across its own search, playlist and watch pages, but never
+// when navigating to an ordinary video or another section of the app.
+const isMusicSection = computed(() => isMusicRoute(route))
+watch(isMusicSection, active => {
+  if (process.env.IS_ELECTRON) window.ftElectron.setLocalMusicActive(active)
+}, { immediate: true, flush: 'sync' })
 
 /** @type {import('vue').ComputedRef<'local' | 'invidious'>} */
 const backendPreference = computed(() => store.getters.getBackendPreference)
@@ -333,6 +342,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  if (process.env.IS_ELECTRON) window.ftElectron.setLocalMusicActive(false)
   document.removeEventListener('keydown', handleKeyboardShortcuts)
   document.removeEventListener('mousedown', handleMouseDown)
   document.removeEventListener('dragstart', handleDragStart)

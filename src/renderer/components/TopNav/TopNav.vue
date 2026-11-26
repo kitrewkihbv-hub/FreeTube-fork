@@ -165,6 +165,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
+import { isMusicRoute } from '../../helpers/musicMode'
 
 import FtInput from '../FtInput/FtInput.vue'
 import FtIconButton from '../FtIconButton/FtIconButton.vue'
@@ -477,6 +478,7 @@ function goToSearch(queryText, { event }) {
         }
 
         const query = {}
+        if (isMusicRoute(route)) query.music = '1'
         if (timestamp) {
           query.timestamp = timestamp
         }
@@ -498,7 +500,7 @@ function goToSearch(queryText, { event }) {
 
         openInternalPath({
           path: `/playlist/${playlistId}`,
-          query,
+          query: isMusicRoute(route) ? { ...query, music: '1' } : query,
           doCreateNewWindow,
           searchQueryText: queryText,
         })
@@ -509,8 +511,8 @@ function goToSearch(queryText, { event }) {
         const { searchQuery, query } = result
 
         openInternalPath({
-          path: `/search/${encodeURIComponent(searchQuery)}`,
-          query,
+          path: isMusicRoute(route) ? '/music' : `/search/${encodeURIComponent(searchQuery)}`,
+          query: isMusicRoute(route) ? { q: searchQuery } : query,
           doCreateNewWindow,
           searchQueryText: searchQuery,
         })
@@ -568,15 +570,17 @@ function goToSearch(queryText, { event }) {
       case 'invalid_url':
       default: {
         openInternalPath({
-          path: `/search/${encodeURIComponent(queryText)}`,
-          query: {
-            prioritize: searchSettings.value.prioritize,
-            time: searchSettings.value.time,
-            type: searchSettings.value.type,
-            duration: searchSettings.value.duration,
-            // Array proxy cannot be cloned during IPC call
-            features: [...searchSettings.value.features],
-          },
+          path: isMusicRoute(route) ? '/music' : `/search/${encodeURIComponent(queryText)}`,
+          query: isMusicRoute(route)
+            ? { q: queryText }
+            : {
+                prioritize: searchSettings.value.prioritize,
+                time: searchSettings.value.time,
+                type: searchSettings.value.type,
+                duration: searchSettings.value.duration,
+                // Array proxy cannot be cloned during IPC call
+                features: [...searchSettings.value.features],
+              },
           doCreateNewWindow,
           searchQueryText: queryText,
         })

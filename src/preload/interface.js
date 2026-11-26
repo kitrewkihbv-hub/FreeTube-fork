@@ -12,6 +12,8 @@ ipcRenderer.on(IpcChannels.NATIVE_THEME_UPDATE, (_, shouldUseDarkColors) => {
 let currentUpdateSearchInputTextListener
 
 export default {
+  /** @param {boolean} active */
+  setLocalMusicActive: (active) => ipcRenderer.send(IpcChannels.LOCAL_MUSIC_ACTIVE, active),
   /** @param {{title: string, artist: string, playing: boolean, shuffle: boolean}|null} state */
   updateLocalPlayerState: (state) => ipcRenderer.send(IpcChannels.LOCAL_PLAYER_STATE, state),
   /** @param {(command: string) => void} callback */
