@@ -200,6 +200,10 @@ export default defineComponent({
 
       isReloadingView: false,
       selectedPlayer: 'web',
+      sabrRetryVideoId: null,
+      sabrReloadCount: 0,
+      sabrWebRetried: false,
+      sabrReloadPending: false,
     }
   },
   computed: {
@@ -2119,14 +2123,42 @@ export default defineComponent({
     },
 
     onManualReloadRequested: throttle(async function () {
+      this.sabrRetryVideoId = null
       await this.saveWatchProgressForReload()
       await this.reloadView()
     }, 1000),
 
     async onSabrReloadRequested() {
-      showToast('Reloading player according to SABR request')
-      await this.saveWatchProgressForReload()
-      await this.reloadView()
+      if (this.isReloadingView || this.sabrReloadPending) return
+      const videoId = this.videoId
+      if (this.sabrRetryVideoId !== videoId) {
+        this.sabrRetryVideoId = videoId
+        this.sabrReloadCount = 0
+        this.sabrWebRetried = false
+      }
+
+      // Never restart the preferred-client chain from zero after a SABR reload.
+      // Advance to the next client; Web gets only one fresh retry. This bounds
+      // both YouTube-requested reloads and our own repeated-backoff recovery.
+      if (this.sabrReloadCount >= 4 || (this.selectedPlayer === 'web' && this.sabrWebRetried)) {
+        this.errorMessage = 'The video stream repeatedly requested a reload. Please reopen the video or try another backend.'
+        return
+      }
+      const nextStage = this.selectedPlayer === 'authenticated-embedded' ? 1 : this.selectedPlayer === 'embedded' ? 2 : 3
+      if (this.selectedPlayer === 'web') this.sabrWebRetried = true
+      this.sabrReloadCount++
+      this.sabrReloadPending = true
+      showToast('Video stream requested a reload; trying another playback source.')
+      try {
+        await this.saveWatchProgressForReload()
+        if (this.videoId === videoId && this.$route.params.id === videoId) await this.reloadView(nextStage)
+      } catch {
+        if (this.videoId === videoId && this.$route.params.id === videoId) {
+          this.errorMessage = 'Could not reload the video stream. Please reopen the video or try another backend.'
+        }
+      } finally {
+        this.sabrReloadPending = false
+      }
     },
 
     ...mapActions([
