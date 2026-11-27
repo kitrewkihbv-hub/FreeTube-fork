@@ -3,6 +3,7 @@ import Autolinker from 'autolinker'
 import { parseLooseJSON } from 'bgutils-js/utils'
 
 import { SEARCH_CHAR_LIMIT } from '../../../constants'
+import { TV_EMBEDDED_USER_AGENT } from '../../../youtubePlayerClients.cjs'
 import { PlayerCache } from './PlayerCache'
 import {
   CHANNEL_HANDLE_REGEX,
@@ -2275,6 +2276,37 @@ function createPlayerRequestBody(videoId, signatureTimestamp, poToken, clientOve
 }
 
 /**
+ * An isolated TV_EMBEDDED player session sharing only the signed-in TV OAuth
+ * manager. Never mutate the shared TV account context or its per-video token.
+ * @param {import('youtubei.js').Session} accountSession
+ * @param {string|undefined} visitorData
+ * @param {string|undefined} poToken
+ * @returns {import('youtubei.js').Session|null}
+ */
+function createAuthenticatedEmbeddedVideoSession(accountSession, visitorData, poToken) {
+  if (!accountSession?.logged_in || !accountSession.oauth?.oauth2_tokens ||
+    accountSession.context?.client?.clientName !== 'TVHTML5' ||
+    typeof visitorData !== 'string' || !visitorData || typeof poToken !== 'string' || !poToken.trim()) return null
+  const context = deepCopy(accountSession.context)
+  Object.assign(context.client, {
+    visitorData,
+    clientName: Constants.CLIENTS.TV_EMBEDDED.NAME,
+    clientVersion: Constants.CLIENTS.TV_EMBEDDED.VERSION,
+    clientScreen: 'EMBED',
+    userAgent: TV_EMBEDDED_USER_AGENT
+  })
+  context.thirdParty = { embedUrl: `${Constants.URLS.YT_BASE}/` }
+  const session = new Session(
+    context, accountSession.api_key, accountSession.api_version, accountSession.account_index,
+    accountSession.config_data, accountSession.player, undefined, accountSession.http.fetch_function,
+    undefined, poToken
+  )
+  session.oauth = accountSession.oauth
+  session.logged_in = true
+  return session
+}
+
+/**
  * A per-video anonymous WEB_EMBEDDED session. Its visitor is the one used in
  * the Web BotGuard challenge; account OAuth never enters the player request.
  * @param {import('youtubei.js').Session} webSession
@@ -2382,13 +2414,13 @@ export async function getLocalVideoInfo(id, { playerFallbackStage = 0 } = {}) {
     })
   }
 
-  // TV OAuth is used only for account operations and optional history pings,
-  // never for player stream extraction. Playback remains possible signed out.
+  // Signed-in playback is experimental; the anonymous paths still work when
+  // the account is unavailable, or the authenticated request is rejected.
   let accountClient = null
   try {
     accountClient = await getYouTubeAccountInnertube()
   } catch {
-    console.warn('Could not initialize the YouTube account for watch reporting; using anonymous playback.')
+    console.warn('Could not initialize the YouTube account for playback; using anonymous playback.')
   }
   const playbackGeneration = accountSessionGeneration
   const htmlExtracts = await getWatchHTMLWatchPage(id, fetchFunc)
@@ -2430,9 +2462,62 @@ export async function getLocalVideoInfo(id, { playerFallbackStage = 0 } = {}) {
   let context = htmlExtracts.session.context
   let selectedPlayer = 'web'
 
+  // Attempt TV_EMBEDDED with TV OAuth, not the original TVHTML5 player. Each
+  // video owns its visitor/token pair; account/feed sessions remain unchanged.
+  if (playerFallbackStage < 1 && accountClient && playbackGeneration === accountSessionGeneration && process.env.IS_ELECTRON) {
+    try {
+      let authenticatedSession = createAuthenticatedEmbeddedVideoSession(
+        accountClient.session, htmlExtracts.session.context.client.visitorData, contentPoToken
+      )
+      if (authenticatedSession) {
+        let candidate = await authenticatedSession.actions.execute('/player',
+          createPlayerRequestBody(id, player.signature_timestamp, authenticatedSession.po_token))
+        const status = candidate?.data?.playabilityStatus?.status
+        if (playbackGeneration === accountSessionGeneration && (status === 'LOGIN_REQUIRED' || status === 'UNPLAYABLE')) {
+          try {
+            const retryVisitor = ProtoUtils.encodeVisitorData(Utils.generateRandomString(11), Math.floor(Date.now() / 1000))
+            if (!retryVisitor || retryVisitor === htmlExtracts.session.context.client.visitorData) throw new Error('Could not create a fresh visitor ID')
+            const retryContext = deepCopy(htmlExtracts.session.context)
+            retryContext.client.visitorData = retryVisitor
+            const retryToken = await window.ftElectron.generatePoToken(
+              id, JSON.stringify(retryContext), JSON.stringify(htmlExtracts.initialAttestationData),
+              JSON.stringify(htmlExtracts.ytConfig), true
+            )
+            if (typeof retryToken !== 'string' || !retryToken.trim()) throw new Error('BotGuard returned an empty retry proof token')
+            if (playbackGeneration === accountSessionGeneration) {
+              const retrySession = createAuthenticatedEmbeddedVideoSession(accountClient.session, retryVisitor, retryToken)
+              if (retrySession) {
+                candidate = await retrySession.actions.execute('/player',
+                  createPlayerRequestBody(id, player.signature_timestamp, retrySession.po_token))
+                authenticatedSession = retrySession
+              }
+            }
+          } catch {
+            console.warn('Authenticated embedded playback retry failed; trying anonymous playback.')
+          }
+        }
+        const data = candidate?.data
+        const streams = data?.streamingData
+        if (playbackGeneration === accountSessionGeneration && accountInnertube === accountClient &&
+          data?.playabilityStatus?.status === 'OK' && (!data.videoDetails?.videoId || data.videoDetails.videoId === id) &&
+          (streams?.formats?.length || streams?.adaptiveFormats?.length || streams?.hlsManifestUrl || streams?.dashManifestUrl || streams?.serverAbrStreamingUrl)) {
+          playerResponse = candidate
+          context = authenticatedSession.context
+          selectedPlayer = 'authenticated-embedded'
+          contentPoToken = authenticatedSession.po_token
+          player.po_token = contentPoToken
+          totalAdTimeMilliseconds = extractTotalAdTimeMilliseconds(data)
+          responseTime = Date.now()
+        }
+      }
+    } catch {
+      console.warn('Authenticated embedded playback failed; trying anonymous playback.')
+    }
+  }
+
   // The embedded session shares only the challenge's Web visitor and proof,
   // never the signed-in TV OAuth manager. YouTube can still reject this token.
-  if (playerFallbackStage < 1 && process.env.IS_ELECTRON) {
+  if (selectedPlayer === 'web' && playerFallbackStage < 2 && process.env.IS_ELECTRON) {
     try {
       let streamSession = createEmbeddedVideoSession(htmlExtracts.session, contentPoToken)
       if (streamSession) {
@@ -2484,7 +2569,7 @@ export async function getLocalVideoInfo(id, { playerFallbackStage = 0 } = {}) {
 
   // Embedded identity errors (including ERROR/152), missing streams and
   // network failures all proceed to one anonymous Android VR attempt.
-  if (selectedPlayer === 'web' && playerFallbackStage < 2 && process.env.IS_ELECTRON &&
+  if (selectedPlayer === 'web' && playerFallbackStage < 3 && process.env.IS_ELECTRON &&
     htmlExtracts.session.context.client.visitorData && contentPoToken) {
     try {
       const vrSession = await createAndroidVrVideoSession(htmlExtracts.session.context.client.visitorData, contentPoToken, fetchFunc)

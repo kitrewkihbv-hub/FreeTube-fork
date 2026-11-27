@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict')
 const { configureInnertubeHeaders, ANDROID_VR_USER_AGENT } = require('../src/main/innertubeRequestHeaders.cjs')
+const { TV_EMBEDDED_USER_AGENT } = require('../src/youtubePlayerClients.cjs')
 
 ;(async () => {
   const { Constants } = await import('youtubei.js')
@@ -18,6 +19,18 @@ const { configureInnertubeHeaders, ANDROID_VR_USER_AGENT } = require('../src/mai
   assert.equal(vr['user-agent'], undefined)
   assert.equal(vr.Authorization, 'Bearer sample')
   assert.equal(vr['X-Youtube-Bootstrap-Logged-In'], 'true')
+  const tv = { 'x-youtube-client-name': '85', 'user-agent': 'browser', authorization: 'Bearer test' }
+  configureInnertubeHeaders(tv, 'https://www.youtube.com/youtubei/v1/player')
+  assert.equal(tv['User-Agent'], TV_EMBEDDED_USER_AGENT)
+  assert.equal(tv.Origin, 'https://www.youtube.com')
+  assert.equal(tv.Referer, 'https://www.youtube.com/')
+  assert.equal(tv['X-Youtube-Bootstrap-Logged-In'], 'true')
+  const anonymousTv = { 'x-youtube-client-name': '85', 'User-Agent': 'browser' }
+  configureInnertubeHeaders(anonymousTv, 'https://www.youtube.com/youtubei/v1/player')
+  assert.equal(anonymousTv['User-Agent'], 'browser')
+  const tvBrowse = { 'x-youtube-client-name': '85', 'User-Agent': 'browser', Authorization: 'Bearer test' }
+  configureInnertubeHeaders(tvBrowse, 'https://www.youtube.com/youtubei/v1/browse')
+  assert.equal(tvBrowse['User-Agent'], 'browser', 'account requests keep their own user agent')
   const browse = { 'X-YouTube-Client-Name': '28', 'User-Agent': 'browser' }
   configureInnertubeHeaders(browse, 'https://www.youtube.com/youtubei/v1/browse')
   assert.equal(browse['User-Agent'], 'browser', 'the VR UA is scoped only to the player endpoint')

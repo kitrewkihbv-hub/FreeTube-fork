@@ -1671,9 +1671,9 @@ export default defineComponent({
             this.handleWatchProgressAutoSaveWhenProgressEnabled()
 
             // A playable response may fail at the media server. Try the next
-            // client once: embedded → Android VR → existing Web fallback.
+            // client once: authenticated TV embed → anonymous embed → VR → Web.
             if (this.selectedPlayer !== 'web' && !this.videoPlayerLoaded && !this.isReloadingView) {
-              const nextStage = this.selectedPlayer === 'embedded' ? 1 : 2
+              const nextStage = this.selectedPlayer === 'authenticated-embedded' ? 1 : this.selectedPlayer === 'embedded' ? 2 : 3
               this.selectedPlayer = 'web'
               this.reloadView(nextStage).catch(() => { this.errorMessage = '[BAD_HTTP_STATUS: 403] Playback request was rejected.' })
               return

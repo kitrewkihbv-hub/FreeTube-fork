@@ -29,12 +29,14 @@ const errorStart = code.indexOf('    handlePlayerError: function (error) {')
 const errorEnd = code.indexOf('    handleActiveFormatUnavailable:', errorStart)
 const onError = vm.runInNewContext(`({${code.slice(errorStart, errorEnd)}}).handlePlayerError`, { shaka: { util: { Error: { Code: { HTTP_ERROR: 1, BAD_HTTP_STATUS: 2, VIDEO_ERROR: 3 } } } } })
 const stages = []
-const playerView = { selectedPlayer: 'embedded', videoPlayerLoaded: false, isReloadingView: false, streamingDataExpiryDate: new Date(Date.now() + 100000), handleWatchProgressAutoSaveWhenProgressEnabled() {}, reloadView: async stage => stages.push(stage) }
+const playerView = { selectedPlayer: 'authenticated-embedded', videoPlayerLoaded: false, isReloadingView: false, streamingDataExpiryDate: new Date(Date.now() + 100000), handleWatchProgressAutoSaveWhenProgressEnabled() {}, reloadView: async stage => stages.push(stage) }
+onError.call(playerView, { code: 2, data: [null, 403] })
+playerView.selectedPlayer = 'embedded'
 onError.call(playerView, { code: 2, data: [null, 403] })
 playerView.selectedPlayer = 'android-vr'
 onError.call(playerView, { code: 2, data: [null, 403] })
 playerView.selectedPlayer = 'web'
 onError.call(playerView, { code: 2, data: [null, 403] })
-assert.deepEqual(stages, [1, 2], 'early media errors advance embedded → VR → Web without looping')
+assert.deepEqual(stages, [1, 2, 3], 'early media errors advance authenticated → embedded → VR → Web without looping')
 assert.match(playerView.errorMessage, /403/)
 console.log('Watch history reporting tests passed')
