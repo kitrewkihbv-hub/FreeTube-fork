@@ -132,10 +132,11 @@ export default {
    * @param {string} context
    * @param {string} initialAttestationData
    * @param {string} ytConfig
+   * @param {boolean} [forceNewChallenge]
    * @returns {Promise<string>}
    */
-  generatePoToken: (videoId, context, initialAttestationData, ytConfig) => {
-    return ipcRenderer.invoke(IpcChannels.GENERATE_PO_TOKEN, videoId, context, initialAttestationData, ytConfig)
+  generatePoToken: (videoId, context, initialAttestationData, ytConfig, forceNewChallenge = false) => {
+    return ipcRenderer.invoke(IpcChannels.GENERATE_PO_TOKEN, videoId, context, initialAttestationData, ytConfig, forceNewChallenge)
   },
 
   /**

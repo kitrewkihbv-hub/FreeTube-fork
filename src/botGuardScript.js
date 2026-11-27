@@ -11,19 +11,22 @@ import { WebPoMinter } from 'bgutils-js/webpo'
  * @param {import('youtubei.js').Session['context']} context
  * @param {object} initialAttestationData
  * @param {object} ytConfig
+ * @param {boolean} forceNewChallenge
  */
-export default async function (videoId, context, initialAttestationData, ytConfig) {
+export default async function (videoId, context, initialAttestationData, ytConfig, forceNewChallenge = false) {
   const requestKey = 'O43z0dpjhgX20SCx4KAo'
 
   let challengeData = initialAttestationData.R
 
-  if (!challengeData.bgChallenge) {
+  if (!challengeData?.bgChallenge && !forceNewChallenge) {
     throw new Error('Failed to get BotGuard challenge')
   }
 
-  let interpreterUrl = challengeData.bgChallenge.interpreterUrl?.privateDoNotAccessOrElseTrustedResourceUrlWrappedValue
+  let interpreterUrl = challengeData?.bgChallenge?.interpreterUrl?.privateDoNotAccessOrElseTrustedResourceUrlWrappedValue
 
-  if (!interpreterUrl) {
+  // A locally regenerated visitor ID needs an attestation request with that
+  // exact visitor in both the header and body, not the old embedded challenge.
+  if (!interpreterUrl || forceNewChallenge) {
     const challengeResponse = await fetch(
       'https://www.youtube.com/youtubei/v1/att/get?prettyPrint=false&alt=json',
       {
@@ -44,7 +47,7 @@ export default async function (videoId, context, initialAttestationData, ytConfi
     )
 
     if (!challengeResponse.ok) {
-      throw new Error(`Request to ${challengeResponse.url} failed with status ${challengeResponse.status}\n${await challengeResponse.text()}`)
+      throw new Error(`BotGuard challenge request failed with status ${challengeResponse.status}`)
     }
 
     challengeData = await challengeResponse.json()
@@ -53,14 +56,17 @@ export default async function (videoId, context, initialAttestationData, ytConfi
       throw new Error('Failed to get BotGuard challenge')
     }
 
-    interpreterUrl = challengeData.bgChallenge.interpreterUrl.privateDoNotAccessOrElseTrustedResourceUrlWrappedValue
+    interpreterUrl = challengeData.bgChallenge.interpreterUrl?.privateDoNotAccessOrElseTrustedResourceUrlWrappedValue
   }
+
+  if (typeof interpreterUrl !== 'string' || !interpreterUrl) throw new Error('BotGuard interpreter URL missing')
 
   if (interpreterUrl.startsWith('//')) {
     interpreterUrl = `https:${interpreterUrl}`
   }
 
   const bgScriptResponse = await fetch(interpreterUrl)
+  if (!bgScriptResponse.ok) throw new Error(`BotGuard interpreter request failed with status ${bgScriptResponse.status}`)
   const interpreterJavascript = await bgScriptResponse.text()
 
   if (interpreterJavascript) {
@@ -90,6 +96,7 @@ export default async function (videoId, context, initialAttestationData, ytConfi
     body: JSON.stringify([requestKey, botGuardResponse])
   })
 
+  if (!integrityTokenResponse.ok) throw new Error(`BotGuard integrity request failed with status ${integrityTokenResponse.status}`)
   const response = await integrityTokenResponse.json()
 
   if (typeof response[0] !== 'string') {
@@ -98,5 +105,7 @@ export default async function (videoId, context, initialAttestationData, ytConfi
 
   const integrityTokenBasedMinter = await WebPoMinter.create({ integrityToken: response[0] }, webPoSignalOutput)
 
-  return await integrityTokenBasedMinter.mintAsWebsafeString(videoId)
+  const token = await integrityTokenBasedMinter.mintAsWebsafeString(videoId)
+  if (typeof token !== 'string' || !token) throw new Error('BotGuard returned an empty proof token')
+  return token
 }

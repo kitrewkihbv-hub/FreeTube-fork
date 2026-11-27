@@ -1,4 +1,4 @@
-import { ClientType, Constants, Innertube, Misc, Mixins, Parser, Platform, Player, Session, UniversalCache, Utils, YT, YTNodes } from 'youtubei.js'
+import { ClientType, Constants, Innertube, Misc, Mixins, Parser, Platform, Player, ProtoUtils, Session, UniversalCache, Utils, YT, YTNodes } from 'youtubei.js'
 import Autolinker from 'autolinker'
 import { parseLooseJSON } from 'bgutils-js/utils'
 
@@ -2299,6 +2299,9 @@ export async function getLocalVideoInfo(id, { skipAccountPlayback = false } = {}
         JSON.stringify(htmlExtracts.ytConfig)
       )
 
+      if (typeof contentPoToken !== 'string' || !contentPoToken.trim()) {
+        throw new Error('BotGuard returned an empty proof token')
+      }
       player.po_token = contentPoToken
     } catch (error) {
       console.error('Local API, poToken generation failed', error)
@@ -2306,6 +2309,7 @@ export async function getLocalVideoInfo(id, { skipAccountPlayback = false } = {}
     }
   }
 
+  const originalContentPoToken = contentPoToken
   let playerResponse
   let nextResponse
   let context = htmlExtracts.session.context
@@ -2321,8 +2325,40 @@ export async function getLocalVideoInfo(id, { skipAccountPlayback = false } = {}
         accountClient.session, htmlExtracts.session.context.client.visitorData, contentPoToken
       )
       if (playbackSession) {
-        const candidate = await playbackSession.actions.execute('/player',
+        let candidate = await playbackSession.actions.execute('/player',
           createPlayerRequestBody(id, player.signature_timestamp, playbackSession.po_token))
+        const status = candidate?.data?.playabilityStatus?.status
+        if (process.env.IS_ELECTRON && playbackGeneration === accountSessionGeneration &&
+          (status === 'LOGIN_REQUIRED' || status === 'UNPLAYABLE')) {
+          try {
+            // youtubei.js uses the same protobuf encoding when generating a local
+            // visitor. Request a new challenge with this exact ID; never reuse the
+            // original HTML's embedded challenge for the retry.
+            const retryVisitor = ProtoUtils.encodeVisitorData(Utils.generateRandomString(11), Math.floor(Date.now() / 1000))
+            if (!retryVisitor || retryVisitor === htmlExtracts.session.context.client.visitorData) {
+              throw new Error('Could not create a fresh visitor ID')
+            }
+            const retryContext = deepCopy(htmlExtracts.session.context)
+            retryContext.client.visitorData = retryVisitor
+            const retryToken = await window.ftElectron.generatePoToken(
+              id, JSON.stringify(retryContext), JSON.stringify(htmlExtracts.initialAttestationData),
+              JSON.stringify(htmlExtracts.ytConfig), true
+            )
+            if (typeof retryToken !== 'string' || !retryToken.trim()) {
+              throw new Error('BotGuard returned an empty retry proof token')
+            }
+            if (playbackGeneration === accountSessionGeneration) {
+              const retrySession = createAuthenticatedVideoSession(accountClient.session, retryVisitor, retryToken)
+              if (retrySession) {
+                candidate = await retrySession.actions.execute('/player',
+                  createPlayerRequestBody(id, player.signature_timestamp, retrySession.po_token))
+                playbackSession = retrySession
+              }
+            }
+          } catch {
+            console.warn('Authenticated playback fresh challenge retry failed; trying signed-out playback.')
+          }
+        }
         const data = candidate?.data
         const streams = data?.streamingData
         if (playbackGeneration === accountSessionGeneration && data?.playabilityStatus?.status === 'OK' &&
@@ -2331,6 +2367,8 @@ export async function getLocalVideoInfo(id, { skipAccountPlayback = false } = {}
           playerResponse = candidate
           context = playbackSession.context
           usedAccountPlayer = true
+          contentPoToken = playbackSession.po_token
+          player.po_token = contentPoToken
           totalAdTimeMilliseconds = extractTotalAdTimeMilliseconds(data)
           responseTime = Date.now()
         }
@@ -2408,6 +2446,8 @@ export async function getLocalVideoInfo(id, { skipAccountPlayback = false } = {}
     playerResponse = { data: htmlExtracts.playerResponse }
     context = htmlExtracts.session.context
     usedAccountPlayer = false
+    contentPoToken = originalContentPoToken
+    player.po_token = originalContentPoToken
     totalAdTimeMilliseconds = extractTotalAdTimeMilliseconds(playerResponse.data)
     info = new YT.VideoInfo([playerResponse, nextResponse], htmlExtracts.session.actions, cpn)
   }

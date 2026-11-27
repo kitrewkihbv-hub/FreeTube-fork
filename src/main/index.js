@@ -1412,9 +1412,9 @@ function runApp() {
     })
   })
 
-  ipcMain.handle(IpcChannels.GENERATE_PO_TOKEN, (event, videoId, context, initialAttestationData, ytConfig) => {
+  ipcMain.handle(IpcChannels.GENERATE_PO_TOKEN, (event, videoId, context, initialAttestationData, ytConfig, forceNewChallenge) => {
     if (isFreeTubeUrl(event.senderFrame.url)) {
-      return generatePoToken(videoId, context, initialAttestationData, ytConfig, proxyUrl)
+      return generatePoToken(videoId, context, initialAttestationData, ytConfig, proxyUrl, forceNewChallenge === true)
     }
   })
 

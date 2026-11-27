@@ -47,9 +47,10 @@ let firstTime = true
  * @param {string} initialAttestationData
  * @param {string} ytConfig
  * @param {string|undefined} proxyUrl
+ * @param {boolean} forceNewChallenge
  * @returns {Promise<string>}
  */
-export function generatePoToken(videoId, context, initialAttestationData, ytConfig, proxyUrl) {
+export function generatePoToken(videoId, context, initialAttestationData, ytConfig, proxyUrl, forceNewChallenge = false) {
   if (firstTime) {
     firstTime = false
     enqueueAsyncFunction(sharedInit)
@@ -67,7 +68,7 @@ export function generatePoToken(videoId, context, initialAttestationData, ytConf
   // - https://github.com/FreeTubeApp/FreeTube/issues/8640
   // - https://github.com/electron/electron/pull/46131
   // - https://github.com/electron/electron/commit/bac2f46ba981cc1763c0485cec44813c1d07fa18
-  const potokenPromise = enqueueAsyncFunction(internalGeneratePotoken, videoId, context, initialAttestationData, ytConfig, proxyUrl)
+  const potokenPromise = enqueueAsyncFunction(internalGeneratePotoken, videoId, context, initialAttestationData, ytConfig, proxyUrl, forceNewChallenge)
 
   // schedule the cleanup separately,
   // so that we can return the potoken without having to wait until the cleanup is done
@@ -151,9 +152,10 @@ async function sharedInit() {
  * @param {string} initialAttestationData
  * @param {string} ytConfig
  * @param {string|undefined} proxyUrl
+ * @param {boolean} forceNewChallenge
  * @returns {Promise<string>}
  */
-async function internalGeneratePotoken(videoId, context, initialAttestationData, ytConfig, proxyUrl) {
+async function internalGeneratePotoken(videoId, context, initialAttestationData, ytConfig, proxyUrl, forceNewChallenge) {
   let webContentsView
 
   try {
@@ -207,7 +209,7 @@ async function internalGeneratePotoken(videoId, context, initialAttestationData,
       }
     })
 
-    const script = cachedScript.replace('FT_PARAMS', `"${videoId}",${context},${initialAttestationData},${ytConfig}`)
+    const script = cachedScript.replace('FT_PARAMS', `${JSON.stringify(videoId)},${context},${initialAttestationData},${ytConfig},${JSON.stringify(forceNewChallenge)}`)
 
     return await webContentsView.webContents.executeJavaScript(script)
   } finally {

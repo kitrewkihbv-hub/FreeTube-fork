@@ -3,8 +3,41 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const vm = require('node:vm')
 
+
+async function testFreshChallenge() {
+  const source = fs.readFileSync('src/botGuardScript.js', 'utf8').replace(/^import .*$/gm, '').replace('export default async function (', 'async function mint(')
+  const requests = []
+  const challenge = { bgChallenge: { interpreterUrl: { privateDoNotAccessOrElseTrustedResourceUrlWrappedValue: 'https://example.com/vm' }, program: 'new-program', globalName: 'bg' } }
+  const context = vm.createContext({
+    window: {},
+    fetch: async (url, options) => {
+      requests.push({ url, options })
+      if (url.includes('/att/get')) return { ok: true, json: async () => challenge }
+      if (url === 'https://example.com/vm') return { ok: true, text: async () => 'window.loaded = true' }
+      return { ok: true, json: async () => ['integrity'] }
+    },
+    BotGuardClient: { create: async options => {
+      assert.equal(options.program, 'new-program')
+      return { snapshot: async () => 'snapshot' }
+    } },
+    WebPoMinter: { create: async () => ({ mintAsWebsafeString: async id => { assert.equal(id, 'video123456'); return 'proof' } }) },
+    buildURL: () => 'https://example.com/integrity', GOOG_API_KEY: 'test'
+  })
+  vm.runInContext(source, context)
+  const webContext = { client: { visitorData: 'fresh-visitor', clientVersion: '1' } }
+  const attestation = { T: 'attestation', R: { bgChallenge: { interpreterUrl: { privateDoNotAccessOrElseTrustedResourceUrlWrappedValue: 'https://example.com/old' }, program: 'old' } } }
+  assert.equal(await context.mint('video123456', webContext, attestation, {}, true), 'proof')
+  assert.equal(requests.length, 3)
+  assert.equal(requests[0].options.headers['X-Goog-Visitor-Id'], 'fresh-visitor')
+  assert.equal(JSON.parse(requests[0].options.body).context.client.visitorData, 'fresh-visitor')
+  assert.equal(requests[1].url, 'https://example.com/vm', 'fresh challenge is used instead of embedded challenge')
+  context.WebPoMinter.create = async () => ({ mintAsWebsafeString: async () => '' })
+  await assert.rejects(context.mint('video123456', webContext, attestation, {}, true), /empty proof token/)
+}
+
 async function testYouTubeIAuth() {
-  const { Session, ClientType } = await import('youtubei.js')
+  const { Session, ClientType, ProtoUtils } = await import('youtubei.js')
+  assert.equal(ProtoUtils.decodeVisitorData(ProtoUtils.encodeVisitorData('abcdefghijk', 1700000000)).id, 'abcdefghijk')
   const requests = []
   const session = await Session.create({
     client_type: ClientType.TV, retrieve_player: false, retrieve_innertube_config: false, generate_session_locally: true,
@@ -86,7 +119,7 @@ async function testYouTubeIAuth() {
   assert.equal(refreshedSession.oauth.oauth2_tokens.refresh_token, 'rotated-refresh')
 }
 
-async function testSelection({ candidate, signedIn = true, isLive = false, invalidate = false, badTvParser = false, missingVisitor = false }) {
+async function testSelection({ candidate, retryCandidate, signedIn = true, isLive = false, invalidate = false, invalidateOnRetryMint = false, invalidateOnRetryResponse = false, badTvParser = false, missingVisitor = false, sameVisitor = false, retryMintFailure = false, retryEmpty = false, initialEmpty = false }) {
   const source = fs.readFileSync('src/renderer/helpers/api/local.js', 'utf8')
   const extract = (start, end) => {
     const a = source.indexOf(start), b = source.indexOf(end, a)
@@ -102,13 +135,14 @@ async function testSelection({ candidate, signedIn = true, isLive = false, inval
   const webPlayer = { playabilityStatus: { status: 'OK' }, videoDetails: {}, streamingData: { formats: [{ id: 'web' }] } }
   const tv = { session: { context: tvContext, actions: { execute: async (path, body) => {
     events.push('tv-player'); calls.push({ path, body })
-    if (invalidate) vm.runInContext('accountSessionGeneration++', context)
-    if (candidate instanceof Error) throw candidate
-    return { data: candidate }
+    if (invalidate || (invalidateOnRetryResponse && calls.length === 2)) vm.runInContext('accountSessionGeneration++', context)
+    const result = calls.length === 1 ? candidate : retryCandidate
+    if (result instanceof Error) throw result
+    return { data: result }
   } } } }
   class VideoInfo {
     constructor([player, next]) {
-      if (badTvParser && player.data === candidate) throw Error('unsupported TV response')
+      if (badTvParser && (player.data === candidate || player.data === retryCandidate)) throw Error('unsupported TV response')
       this.player = player.data
       this.next = next.data
       this.playability_status = { status: player.data.playabilityStatus.status }
@@ -122,22 +156,35 @@ async function testSelection({ candidate, signedIn = true, isLive = false, inval
     process: { env: { IS_ELECTRON: true } }, accountSessionGeneration: 0,
     getYouTubeAccountInnertube: async () => { events.push('session'); return signedIn ? tv : null },
     getWatchHTMLWatchPage: async () => { events.push('html'); return { session: { context: webContext, actions: { execute: async path => { events.push(`web-${path}`); throw new Error('unexpected web request') } } }, playerResponse: webPlayer, nextResponse: { metadata: 'web' }, initialAttestationData: { challenge: true }, ytConfig: {}, playerId: 'player' } },
-    window: { ftElectron: { generatePoToken: async (_id, contextJson) => { events.push('proof'); assert.equal(JSON.parse(contextJson).client.clientName, 'WEB'); return 'test-proof' } } },
+    window: { ftElectron: { generatePoToken: async (_id, contextJson, _att, _config, force) => {
+      events.push(force ? 'retry-proof' : 'proof')
+      const visitor = JSON.parse(contextJson).client.visitorData
+      assert.equal(JSON.parse(contextJson).client.clientName, 'WEB')
+      if (!force) { assert.equal(visitor, webContext.client.visitorData); return initialEmpty ? '' : 'test-proof' }
+      assert.equal(visitor, 'fresh-visitor')
+      if (invalidateOnRetryMint) vm.runInContext('accountSessionGeneration++', context)
+      if (retryMintFailure) throw Error('mint failed')
+      return retryEmpty ? '' : 'retry-proof'
+    } } },
     Player: { create: async () => ({ signature_timestamp: 42, decipher: async url => url }) }, PlayerCache: class {}, UniversalCache: class {},
-    YT: { VideoInfo }, Utils: { generateRandomString: () => 'cpn' }, Constants: { CLIENT_NAME_IDS: { WEB: '1', TVHTML5: '7' } },
+    YT: { VideoInfo }, Utils: { generateRandomString: () => 'cpn' }, ProtoUtils: { encodeVisitorData: () => sameVisitor ? 'proof-visitor' : 'fresh-visitor' }, deepCopy: x => JSON.parse(JSON.stringify(x)), Constants: { CLIENT_NAME_IDS: { WEB: '1', TVHTML5: '7' } },
     extractTotalAdTimeMilliseconds: () => 0, extractLocalContentDisclosures: () => null,
     createYouTubeWatchTracker: () => ({ update() {} }),
     createAuthenticatedVideoSession: (original, visitor, token) => {
       assert.equal(original, tv.session)
       if (missingVisitor) { assert.equal(visitor, ''); return null }
-      assert.equal(visitor, 'proof-visitor')
-      assert.equal(token, 'test-proof')
+      assert.ok((visitor === 'proof-visitor' && token === 'test-proof') || (visitor === 'fresh-visitor' && token === 'retry-proof'))
       return { ...original, context: { client: { ...original.context.client, visitorData: visitor } }, po_token: token }
     },
     decipherFormats: async () => {}, decipherManifestUrl: async url => url,
     createInnertube: async () => { throw Error('unexpected fallback') }, ClientType: {}, console: { warn() {}, error() {} }, Date,
   })
   vm.runInContext(functions, context)
+  if (initialEmpty) {
+    await assert.rejects(vm.runInContext("getLocalVideoInfo('video123456')", context), /empty proof token/)
+    assert.equal(calls.length, 0)
+    return
+  }
   const result = await vm.runInContext("getLocalVideoInfo('video123456')", context)
   assert.equal(events[0], 'session', 'account session initializes before HTML or player access')
   assert.equal(result.info.next.metadata, 'web', 'Web watch-next metadata is preserved')
@@ -146,17 +193,37 @@ async function testSelection({ candidate, signedIn = true, isLive = false, inval
     assert.equal(calls[0].body.videoId, 'video123456')
     assert.equal(calls[0].body.serviceIntegrityDimensions.poToken, 'test-proof')
   } else assert.equal(calls.length, 0)
-  const usesTv = signedIn && !missingVisitor && !invalidate && !badTvParser && !(candidate instanceof Error) && candidate?.playabilityStatus?.status === 'OK' && candidate?.streamingData
-  assert.equal(result.info.player, usesTv ? candidate : webPlayer)
+  const retryTriggered = signedIn && !missingVisitor && !invalidate && ['LOGIN_REQUIRED', 'UNPLAYABLE'].includes(candidate?.playabilityStatus?.status)
+  const shouldRetry = retryTriggered && !sameVisitor && !retryMintFailure && !retryEmpty && !invalidateOnRetryMint
+  assert.equal(calls.length, signedIn && !missingVisitor ? (shouldRetry ? 2 : 1) : 0)
+  if (shouldRetry) assert.equal(calls[1].body.serviceIntegrityDimensions.poToken, 'retry-proof')
+  assert.equal(events.includes('retry-proof'), !!(retryTriggered && !sameVisitor))
+  const chosen = shouldRetry ? retryCandidate : candidate
+  const usesTv = signedIn && !missingVisitor && !invalidate && !invalidateOnRetryMint && !invalidateOnRetryResponse && !badTvParser && !(chosen instanceof Error) && chosen?.playabilityStatus?.status === 'OK' && chosen?.streamingData
+  assert.equal(result.info.player, usesTv ? chosen : webPlayer)
+  assert.equal(result.poToken, usesTv && shouldRetry ? 'retry-proof' : 'test-proof')
   assert.equal(result.clientInfo.clientName, usesTv ? '7' : '1')
   if (isLive) assert.ok(!events.includes('web-/player'), 'TV live playback does not overwrite the authenticated response with an anonymous MWEB response')
 }
 
 ;(async () => {
+  await testFreshChallenge()
   await testYouTubeIAuth()
   const valid = { playabilityStatus: { status: 'OK' }, videoDetails: {}, streamingData: { adaptiveFormats: [{}] } }
   await testSelection({ candidate: valid })
-  await testSelection({ candidate: { playabilityStatus: { status: 'LOGIN_REQUIRED' } } })
+  const login = { playabilityStatus: { status: 'LOGIN_REQUIRED' } }
+  const unplayable = { playabilityStatus: { status: 'UNPLAYABLE' } }
+  await testSelection({ candidate: login, retryCandidate: valid })
+  await testSelection({ candidate: unplayable, retryCandidate: valid })
+  await testSelection({ candidate: login, retryCandidate: login })
+  await testSelection({ candidate: login, retryCandidate: new Error('offline') })
+  await testSelection({ candidate: login, retryMintFailure: true })
+  await testSelection({ candidate: login, retryEmpty: true })
+  await testSelection({ candidate: login, sameVisitor: true })
+  await testSelection({ candidate: login, invalidateOnRetryMint: true })
+  await testSelection({ candidate: login, retryCandidate: valid, invalidateOnRetryResponse: true })
+  await testSelection({ candidate: login, retryCandidate: valid, badTvParser: true })
+  await testSelection({ candidate: valid, initialEmpty: true })
   await testSelection({ candidate: new Error('offline') })
   await testSelection({ candidate: valid, signedIn: false })
   await testSelection({ candidate: valid, invalidate: true })
