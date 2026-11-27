@@ -34,6 +34,7 @@ import { isFreeTubeUrl } from './utils'
 import { startLocalControlServer } from './localControlServer.cjs'
 import { createMusicControlLifecycle } from './musicControlLifecycle.cjs'
 import { createTitleStatusFile } from './titleStatusFile.cjs'
+import { createDynamicIslandCommands } from './dynamicIslandCommands.cjs'
 import { configureInnertubeHeaders } from './innertubeRequestHeaders.cjs'
 import {
   cancelSignIn,
@@ -374,6 +375,18 @@ function runApp() {
   let mainWindow
   // Übersicht reads this macOS title file; it is separate from the music HTTP API.
   const titleStatusFile = process.platform === 'darwin' ? createTitleStatusFile() : null
+  // One listener for the same main window whose title is published to the widget.
+  const dynamicIslandCommands = process.platform === 'darwin'
+    ? createDynamicIslandCommands({
+        canPoll: () => Boolean(mainWindow && !mainWindow.isDestroyed() && isFreeTubeUrl(mainWindow.webContents.getURL())),
+        onCommand: command => {
+          if (mainWindow && !mainWindow.isDestroyed() && isFreeTubeUrl(mainWindow.webContents.getURL())) {
+            mainWindow.webContents.send(IpcChannels.DYNAMIC_ISLAND_COMMAND, command)
+          }
+        }
+      })
+    : null
+  app.on('will-quit', () => dynamicIslandCommands?.stop())
   let titleStatusShutdownStarted = false
   app.on('before-quit', event => {
     if (!titleStatusFile || titleStatusShutdownStarted) return

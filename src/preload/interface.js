@@ -23,6 +23,13 @@ export default {
     return () => ipcRenderer.removeListener(IpcChannels.LOCAL_PLAYER_COMMAND, listener)
   },
 
+  /** @param {(command: string) => void} callback */
+  onDynamicIslandCommand: (callback) => {
+    const listener = (_, command) => callback(command)
+    ipcRenderer.on(IpcChannels.DYNAMIC_ISLAND_COMMAND, listener)
+    return () => ipcRenderer.removeListener(IpcChannels.DYNAMIC_ISLAND_COMMAND, listener)
+  },
+
   /**
    * @returns {Promise<string>}
    */

@@ -13,6 +13,7 @@ const IpcChannels = {
   LOCAL_MUSIC_ACTIVE: 'local-music-active',
   LOCAL_PLAYER_STATE: 'local-player-state',
   LOCAL_PLAYER_COMMAND: 'local-player-command',
+  DYNAMIC_ISLAND_COMMAND: 'dynamic-island-command',
   RELAUNCH_REQUEST: 'relaunch-request',
 
   SEARCH_INPUT_HANDLING_READY: 'search-input-handling-ready',

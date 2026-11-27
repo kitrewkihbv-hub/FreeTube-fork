@@ -83,6 +83,7 @@ export default defineComponent({
   beforeRouteLeave: async function (to, from, next) {
     this.widgetControlsActive = false
     this.stopLocalWidgetControls?.()
+    this.stopDynamicIslandControls?.()
     if (process.env.IS_ELECTRON) window.ftElectron.updateLocalPlayerState(null)
     this.handleRouteChange()
     window.removeEventListener('beforeunload', this.handleWatchProgressAutoSave)
@@ -117,6 +118,7 @@ export default defineComponent({
       musicCurrentTime: 0,
       musicShowDetails: false,
       stopLocalWidgetControls: null,
+      stopDynamicIslandControls: null,
       widgetControlsActive: false,
       isFamilyFriendly: false,
       isLive: false,
@@ -381,6 +383,7 @@ export default defineComponent({
     if (process.env.IS_ELECTRON) {
       this.widgetControlsActive = true
       this.stopLocalWidgetControls = window.ftElectron.onLocalPlayerCommand(this.handleLocalPlayerCommand)
+      this.stopDynamicIslandControls = window.ftElectron.onDynamicIslandCommand(this.handleDynamicIslandCommand)
       this.syncLocalPlayerState()
     }
     this.onMountedDependOnLocalStateLoading()
@@ -405,6 +408,18 @@ export default defineComponent({
         case 'next': this.handleSkipToNext(); break
         case 'prev': this.handleSkipToPrev(); break
         case 'shuffle': this.toggleMusicShuffle(); break
+      }
+    },
+    handleDynamicIslandCommand(command) {
+      if (!this.videoPlayerLoaded || this.isLoading || this.errorMessage || !this.$refs.player) return
+      switch (command) {
+        case 'PLAY': this.$refs.player.togglePlayback(); break
+        case 'NEXT': this.handleSkipToNext(); break
+        case 'PREV':
+          if (this.$refs.player.getCurrentTime() > 4) this.$refs.player.setCurrentTime(0)
+          else if (this.watchingPlaylist) this.handleSkipToPrev()
+          else this.$router.back()
+          break
       }
     },
     toggleMusicPlayback() { this.$refs.player?.togglePlayback() },

@@ -75,6 +75,8 @@ jobs:
         run: |
           set -euo pipefail
           cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
+          On macOS, the Dynamic Island command file /tmp/mactube_cmd.txt accepts PLAY (toggle), NEXT and PREV for the main window. Any local program running as your user can write commands; the single-slot file can lose rapid writes. NEXT needs a playlist or available recommendations. PREV restarts after four seconds, otherwise uses the playlist or navigates back. Live widget integration has not been tested.
+
           The macOS Übersicht title file at /tmp/mactube_np.txt now has a fourth thumbnail URL field and is updated on in-page navigation. PLAYING means the window has a nonempty page title, not necessarily that media is playing. Page titles can be recorded outside Music. Opening the thumbnail URL contacts YouTube. The file is removed on window close or quit when possible.
 
           Account OAuth now normalizes saved expiration data, refreshes before expiry and retries a 401 once, with bounded account fallback attempts. A persistent 401 can still have other causes, and real-account playback and macOS behavior have not been verified.
@@ -89,7 +91,7 @@ jobs:
 
           Download arm64 for Apple Silicon, or the file without arm64 for Intel. MacTube shares the existing FreeTube data directory, so back up your data before upgrading.
           NOTES
-          gh release create mac-build-30 assets/MacTube-0.26.0.dmg assets/MacTube-0.26.0-arm64.dmg assets/MacTube-0.26.0-mac.zip assets/MacTube-0.26.0-arm64-mac.zip --draft --target "$GITHUB_SHA" --title 'MacTube (mac-build-30)' --notes-file "$RUNNER_TEMP/release-notes.md"
+          gh release create mac-build-31 assets/MacTube-0.26.0.dmg assets/MacTube-0.26.0-arm64.dmg assets/MacTube-0.26.0-mac.zip assets/MacTube-0.26.0-arm64-mac.zip --draft --target "$GITHUB_SHA" --title 'MacTube (mac-build-31)' --notes-file "$RUNNER_TEMP/release-notes.md"
 
   scan-and-publish:
     needs: mac-release
@@ -109,7 +111,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p assets
-          gh release download mac-build-30 --pattern '*.zip' --dir assets
+          gh release download mac-build-31 --pattern '*.zip' --dir assets
           test -f assets/MacTube-0.26.0-mac.zip
           test -f assets/MacTube-0.26.0-arm64-mac.zip
       - name: Install ClamAV and update signatures
@@ -137,4 +139,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-        run: gh release edit mac-build-30 --draft=false
+        run: gh release edit mac-build-31 --draft=false
