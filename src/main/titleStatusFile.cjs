@@ -2,14 +2,27 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 const crypto = require('node:crypto')
 
-function formatWindowTitle(title) {
+function getVideoId(url) {
+  try {
+    const parsed = new URL(url)
+    // Vue's desktop router uses a hash URL, e.g. file:///.../#/watch/VIDEO_ID.
+    const route = parsed.hash.startsWith('#/') ? new URL(parsed.hash.slice(1), 'https://app.invalid') : parsed
+    const id = route.searchParams.get('v') || route.pathname.match(/(?:^|\/)watch\/([^/]+)/)?.[1]
+    return typeof id === 'string' && /^[A-Za-z0-9_-]{11}$/.test(id) ? id : ''
+  } catch {
+    return ''
+  }
+}
+
+function formatWindowTitle(title, url = '') {
   const clean = String(title || '')
     .replace(/\s*-\s*(MacTube|FreeTube)$/i, '')
     .replace(/[|\r\n]+/g, ' ')
     .trim()
-  return !clean || /^(MacTube|FreeTube)$/i.test(clean)
-    ? 'IDLE|MACTUBE READY|STANDBY'
-    : `PLAYING|${clean}|MACTUBE`
+  if (!clean || /^(MacTube|FreeTube)$/i.test(clean)) return 'IDLE|MACTUBE|STANDBY|'
+  const videoId = getVideoId(url)
+  const thumbnail = videoId ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` : ''
+  return `PLAYING|${clean}|MACTUBE|${thumbnail}`
 }
 
 // The title-file protocol is intentionally independent of the music-only HTTP API.
@@ -26,9 +39,9 @@ function createTitleStatusFile({ filename = '/tmp/mactube_np.txt', logError = co
     return queue
   }
 
-  function update(title) {
+  function update(title, url) {
     if (stopped) return queue
-    const content = formatWindowTitle(title)
+    const content = formatWindowTitle(title, url)
     return enqueue(async () => {
       const temp = path.join(path.dirname(filename), `.${path.basename(filename)}-${process.pid}-${crypto.randomBytes(12).toString('hex')}`)
       let handle

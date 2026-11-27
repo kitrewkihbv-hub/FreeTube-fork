@@ -153,11 +153,18 @@ export default {
     return ipcRenderer.invoke(IpcChannels.ACCOUNT_GET_TOKENS)
   },
 
+  /** @param {string|null} rejectedToken */
+  ensureValidYouTubeAuth: (rejectedToken = null) => ipcRenderer.invoke(IpcChannels.ACCOUNT_ENSURE_AUTH, rejectedToken),
+
+  /** @param {string} rejectedToken */
+  rejectYouTubeAccountToken: (rejectedToken) => ipcRenderer.invoke(IpcChannels.ACCOUNT_REJECT_TOKEN, rejectedToken),
+
   /**
    * @param {import('../main/youtubeAccount').AccountTokens} tokens
+   * @param {string|undefined} expectedAccessToken
    */
-  updateAccountTokens: (tokens) => {
-    return ipcRenderer.invoke(IpcChannels.ACCOUNT_UPDATE_TOKENS, tokens)
+  updateAccountTokens: (tokens, expectedAccessToken) => {
+    return ipcRenderer.invoke(IpcChannels.ACCOUNT_UPDATE_TOKENS, tokens, expectedAccessToken)
   },
 
   /**

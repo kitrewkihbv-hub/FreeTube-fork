@@ -446,10 +446,11 @@ let accountWebInnertubePromise = null
  * @param {YouTubeAccountTokens} tokens
  */
 function saveAccountTokens(tokens) {
+  const expectedAccessToken = accountTokens?.access_token
   accountTokens = tokens
 
   if (process.env.IS_ELECTRON) {
-    window.ftElectron.updateAccountTokens(tokens).catch(() => {
+    window.ftElectron.updateAccountTokens(tokens, expectedAccessToken).catch(() => {
       // Do not log credentials or raw authentication responses.
       console.warn('Could not persist refreshed YouTube account credentials.')
     })
@@ -475,28 +476,78 @@ async function getAccountTokens() {
 }
 
 /**
- * youtubei.js refreshes OAuth access tokens, but its current version ignores an
- * optional rotated refresh_token in the response. Preserve it before youtubei.js
- * emits update-credentials. No credentials are logged or sent to another host.
+ * Central refresh and credential synchronization. The main process coalesces
+ * refreshes across windows and persists them before handing them back.
+ * @param {string|null} rejectedToken
+ */
+async function ensureValidYouTubeAuth(rejectedToken = null) {
+  const generation = accountSessionGeneration
+  let tokens
+  try {
+    tokens = await window.ftElectron.ensureValidYouTubeAuth(rejectedToken)
+  } catch {
+    const error = new Error('YouTube account authentication failed. Please try again or sign in again.')
+    error.code = 'YOUTUBE_AUTH_FAILED'
+    throw error
+  }
+  if (generation !== accountSessionGeneration || !tokens) {
+    const error = new Error('The YouTube account session changed.')
+    error.code = 'YOUTUBE_AUTH_FAILED'
+    throw error
+  }
+  accountTokens = tokens
+  for (const client of [accountInnertube, accountWebInnertube]) {
+    if (client?.session.oauth) client.session.oauth.setTokens({ ...tokens })
+  }
+  return tokens
+}
+
+/**
+ * Refresh before sending an authenticated YouTube request; on 401, refresh
+ * once and retry the same request once. Never forward a bearer to another host.
  * @param {() => Innertube | null} getClient
  * @param {number} generation
  */
 function createAccountFetch(getClient, generation) {
   return async (input, init) => {
-    const response = await fetch(input, init)
     const url = input instanceof URL ? input.href : (typeof input === 'string' ? input : input?.url)
-    if (url === 'https://www.youtube.com/o/oauth2/token' && response.ok && generation === accountSessionGeneration) {
-      try {
-        const request = JSON.parse(init?.body ?? '{}')
-        if (request.grant_type === 'refresh_token') {
-          const data = await response.clone().json()
-          const tokens = getClient()?.session.oauth.oauth2_tokens
-          if (tokens && typeof data.refresh_token === 'string' && data.refresh_token && !data.error && !data.error_code) {
-            tokens.refresh_token = data.refresh_token
-          }
+    const headers = new Headers(init?.headers ?? input?.headers)
+    const authorization = headers.get('authorization')
+    let isAccountRequest = false
+    try {
+      const parsed = new URL(url)
+      isAccountRequest = parsed.origin === 'https://www.youtube.com' &&
+        (parsed.pathname.startsWith('/youtubei/v1/') || ['/api/stats/playback', '/api/stats/watchtime'].includes(parsed.pathname)) &&
+        authorization?.startsWith('Bearer ')
+    } catch { /* Not an account API URL. */ }
+    if (!isAccountRequest) return await fetch(input, init)
+    if (generation !== accountSessionGeneration) {
+      const error = new Error('The YouTube account session changed.')
+      error.code = 'YOUTUBE_AUTH_FAILED'
+      throw error
+    }
+    const send = async tokens => {
+      if (generation !== accountSessionGeneration) {
+        const error = new Error('The YouTube account session changed.')
+        error.code = 'YOUTUBE_AUTH_FAILED'
+        throw error
+      }
+      getClient()?.session.oauth?.setTokens({ ...tokens })
+      headers.set('Authorization', `Bearer ${tokens.access_token}`)
+      return await fetch(input, { ...init, headers })
+    }
+    let tokens = await ensureValidYouTubeAuth()
+    let response = await send(tokens)
+    if (response.status === 401) {
+      tokens = await ensureValidYouTubeAuth(tokens.access_token)
+      response = await send(tokens)
+      if (response.status === 401) {
+        if (generation === accountSessionGeneration) {
+          await window.ftElectron.rejectYouTubeAccountToken(tokens.access_token).catch(() => {})
         }
-      } catch {
-        // youtubei.js will process and report the original response.
+        const error = new Error('YouTube rejected the refreshed account credentials. Please sign in again if this persists.')
+        error.code = 'YOUTUBE_AUTH_FAILED'
+        throw error
       }
     }
     return response
@@ -529,8 +580,10 @@ export async function getYouTubeAccountInnertube() {
 
   const generation = accountSessionGeneration
   const promise = (async () => {
-    const tokens = await getAccountTokens()
-    if (generation !== accountSessionGeneration || tokens === null) return null
+    const storedTokens = await getAccountTokens()
+    if (generation !== accountSessionGeneration || storedTokens === null) return null
+    const tokens = await ensureValidYouTubeAuth()
+    if (generation !== accountSessionGeneration) return null
 
     let innertube = null
     innertube = await createInnertube({
@@ -543,7 +596,10 @@ export async function getYouTubeAccountInnertube() {
       if (generation === accountSessionGeneration) saveAccountTokens({ ...accountTokens, ...credentials })
     })
 
-    await innertube.session.signIn(tokens)
+    // All refreshes are coordinated in the main process, not separately by
+    // youtubei.js for each TV, WEB, and per-video session.
+    innertube.session.oauth.shouldRefreshToken = () => false
+    await innertube.session.signIn({ ...tokens })
     if (generation !== accountSessionGeneration) return null
     if (!innertube.session.logged_in) {
       throw new Error('YouTube did not authenticate the saved account tokens.')
@@ -567,11 +623,12 @@ export async function getYouTubeAccountInnertube() {
  * @returns {Promise<Innertube>}
  */
 async function getYouTubeAccountWebInnertube() {
-  const tokens = await getAccountTokens()
+  const storedTokens = await getAccountTokens()
 
-  if (tokens === null) {
+  if (storedTokens === null) {
     throw new Error('You must be signed in to your YouTube account.')
   }
+  const tokens = await ensureValidYouTubeAuth()
 
   if (accountWebInnertube !== null) {
     return accountWebInnertube
@@ -587,7 +644,8 @@ async function getYouTubeAccountWebInnertube() {
         if (generation === accountSessionGeneration) saveAccountTokens({ ...accountTokens, ...credentials })
       })
 
-      await innertube.session.signIn(tokens)
+      innertube.session.oauth.shouldRefreshToken = () => false
+      await innertube.session.signIn({ ...tokens })
       if (generation !== accountSessionGeneration) throw new Error('The YouTube account session changed.')
 
       if (!innertube.session.logged_in) {
@@ -725,6 +783,7 @@ export async function getYouTubeAccountSubscriptions() {
       channelsFeed = await channelsFeed.getContinuation()
     }
   } catch (error) {
+    if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
     sourceErrors.push(error)
     console.warn('failed to retrieve the YouTube channels list; trying other subscription sources', error)
   }
@@ -742,6 +801,7 @@ export async function getYouTubeAccountSubscriptions() {
       }
       fallbackSourceSucceeded ||= tvChannels.length > 0
     } catch (error) {
+      if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
       sourceErrors.push(error)
       console.warn('failed to retrieve YouTube TV subscription tabs', error)
     }
@@ -767,6 +827,7 @@ export async function getYouTubeAccountSubscriptions() {
         }
       }
     } catch (error) {
+      if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
       sourceErrors.push(error)
       console.warn('failed to retrieve the YouTube subscriptions guide', error)
     }
@@ -791,6 +852,7 @@ export async function getYouTubeAccountSubscriptions() {
         feed = await feed.getContinuation()
       }
     } catch (error) {
+      if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
       sourceErrors.push(error)
       console.warn('failed to retrieve the YouTube subscriptions activity feed', error)
     }
@@ -916,6 +978,7 @@ function getYouTubeAccountFeedArray(value, propertyName) {
 
     return Array.isArray(items) ? items : []
   } catch (error) {
+    if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
     console.warn(`failed to read YouTube account feed ${propertyName}; trying its alternate item shape`, error)
     return []
   }
@@ -1032,6 +1095,7 @@ function getYouTubeAccountVideoFallback(item) {
       lengthSeconds: Number.isFinite(parsedLengthSeconds) ? parsedLengthSeconds : ''
     }
   } catch (error) {
+    if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
     console.warn('failed to extract a video ID from an unrecognized YouTube account item', error)
     return null
   }
@@ -1068,6 +1132,7 @@ async function getYouTubeAccountHistoryFeed(innertube, clientLabel) {
   try {
     historyFeed = await innertube.getHistory()
   } catch (error) {
+    if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
     historyFeedError = error
     console.warn(`failed to retrieve YouTube history with the ${clientLabel} client; trying its Library history shelf`, error)
   }
@@ -1083,6 +1148,7 @@ async function getYouTubeAccountHistoryFeed(innertube, clientLabel) {
         historyFeed = rawHistoryFeed
       }
     } catch (error) {
+      if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
       historyFeedError ??= error
       console.warn(`failed to read the raw YouTube TV history page with the ${clientLabel} client`, error)
     }
@@ -1098,6 +1164,7 @@ async function getYouTubeAccountHistoryFeed(innertube, clientLabel) {
         try {
           libraryHistoryFeed = await historyShelf.getAll()
         } catch (error) {
+          if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
           historyTruncated = true
           historyFeedError ??= error
           console.warn(`failed to open the full YouTube Library history shelf with the ${clientLabel} client`, error)
@@ -1122,6 +1189,7 @@ async function getYouTubeAccountHistoryFeed(innertube, clientLabel) {
         usesHistoryTimestamps = true
       }
     } catch (error) {
+      if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
       historyFeedError ??= error
       console.warn(`failed to retrieve YouTube history from the Library shelf with the ${clientLabel} client`, error)
     }
@@ -1136,6 +1204,7 @@ async function getYouTubeAccountHistoryFeed(innertube, clientLabel) {
       try {
         historyPlaylistFeed = await innertube.getPlaylist('HL')
       } catch (error) {
+        if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
         historyFeedError ??= error
         console.warn(`failed to parse the YouTube HL playlist with the ${clientLabel} client; trying its raw browse result`, error)
       }
@@ -1148,6 +1217,7 @@ async function getYouTubeAccountHistoryFeed(innertube, clientLabel) {
             historyPlaylistFeed = rawHistoryPlaylistFeed
           }
         } catch (error) {
+          if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
           historyFeedError ??= error
           console.warn(`failed to read the raw YouTube HL playlist with the ${clientLabel} client`, error)
         }
@@ -1162,6 +1232,7 @@ async function getYouTubeAccountHistoryFeed(innertube, clientLabel) {
         usesHistoryTimestamps = false
       }
     } catch (error) {
+      if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
       historyFeedError ??= error
       console.warn(`failed to retrieve YouTube watch history from its HL playlist with the ${clientLabel} client`, error)
     }
@@ -1219,6 +1290,7 @@ export async function getYouTubeAccountHistory() {
 
       historyFeedError ??= webHistory.error
     } catch (error) {
+      if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
       historyFeedError ??= error
       console.warn('failed to retry YouTube watch history with the WEB client', error)
     }
@@ -1245,6 +1317,7 @@ export async function getYouTubeAccountHistory() {
         try {
           videoData = parseLocalListVideo(video)
         } catch (error) {
+          if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
           console.warn('failed to parse a YouTube history item using the list parser; trying the playlist parser', error)
         }
 
@@ -1252,6 +1325,7 @@ export async function getYouTubeAccountHistory() {
           try {
             videoData = parseLocalPlaylistVideos([video])[0]
           } catch (error) {
+            if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
             console.warn('skipping a YouTube history item that could not be parsed', error)
           }
         }
@@ -1297,6 +1371,7 @@ export async function getYouTubeAccountHistory() {
     try {
       historyFeed = await historyFeed.getContinuation()
     } catch (error) {
+      if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
       historyTruncated = true
       console.warn('YouTube history continuation failed; keeping the pages already imported', error)
 
@@ -1418,6 +1493,7 @@ export async function getYouTubeAccountPlaylists() {
         return true
       }
     } catch (error) {
+      if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
       sourceErrors.push(error)
       console.warn(`failed to read the raw YouTube playlist index with the ${clientLabel} client`, error)
     }
@@ -1431,6 +1507,7 @@ export async function getYouTubeAccountPlaylists() {
     playlistIndexSucceeded = true
     await readPlaylistIndex(feed)
   } catch (error) {
+    if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
     sourceErrors.push(error)
     playlistIndexFailed = true
     console.warn('failed to retrieve YouTube playlist index; trying the Library shelf', error)
@@ -1454,6 +1531,7 @@ export async function getYouTubeAccountPlaylists() {
       addPlaylistSummary(playlist)
     }
   } catch (error) {
+    if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
     sourceErrors.push(error)
     libraryFailed = true
     console.warn('failed to retrieve the YouTube Library while syncing playlists', error)
@@ -1475,6 +1553,7 @@ export async function getYouTubeAccountPlaylists() {
         playlistIndexFailed = false
         await readPlaylistIndex(feed)
       } catch (error) {
+        if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
         sourceErrors.push(error)
         playlistIndexFailed = true
         console.warn('failed to retrieve the YouTube playlist index with the WEB client', error)
@@ -1506,6 +1585,7 @@ export async function getYouTubeAccountPlaylists() {
           library = webLibrary
         }
       } catch (error) {
+        if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
         sourceErrors.push(error)
         libraryFailed = true
         console.warn('failed to retrieve the YouTube Library with the WEB client', error)
@@ -1519,6 +1599,7 @@ export async function getYouTubeAccountPlaylists() {
         truncated = true
       }
     } catch (error) {
+      if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
       sourceErrors.push(error)
       truncated = true
       console.warn('failed to create the YouTube WEB client while syncing playlists', error)
@@ -1567,6 +1648,7 @@ export async function getYouTubeAccountPlaylists() {
           try {
             video = parseLocalPlaylistVideos([item])[0]
           } catch (error) {
+            if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
             console.warn('failed to parse a YouTube playlist item with the playlist parser; trying the list parser', error)
           }
 
@@ -1574,6 +1656,7 @@ export async function getYouTubeAccountPlaylists() {
             try {
               video = parseLocalListVideo(item)
             } catch (error) {
+              if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
               console.warn('skipping a YouTube playlist item that could not be parsed', error)
             }
           }
@@ -1604,6 +1687,7 @@ export async function getYouTubeAccountPlaylists() {
       try {
         feed = await feed.getContinuation()
       } catch (error) {
+        if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
         truncated = true
         console.warn('YouTube playlist continuation failed; keeping the items already imported', error)
         break
@@ -1633,12 +1717,14 @@ export async function getYouTubeAccountPlaylists() {
     try {
       feed = await client.getPlaylist(playlistId)
     } catch (error) {
+      if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
       fetchError = error
     }
 
     try {
       feed = await getRawPlaylistFeed(feed, playlistId, client.actions)
     } catch (error) {
+      if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
       fetchError ??= error
     }
 
@@ -1672,6 +1758,7 @@ export async function getYouTubeAccountPlaylists() {
     try {
       playlistFeed = await fetchPlaylistFeed(playlistInnertube, summary.id)
     } catch (error) {
+      if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
       playlistFetchError = error
     }
 
@@ -1684,6 +1771,7 @@ export async function getYouTubeAccountPlaylists() {
           playlistFetchError = undefined
         }
       } catch (error) {
+        if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
         playlistFetchError ??= error
       }
     }
@@ -1737,6 +1825,7 @@ export async function getYouTubeAccountPlaylists() {
     try {
       playlistFeed = await fetchPlaylistFeed(playlistInnertube, playlistId)
     } catch (error) {
+      if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
       playlistFetchError = error
     }
 
@@ -1750,6 +1839,7 @@ export async function getYouTubeAccountPlaylists() {
           playlistFetchError = undefined
         }
       } catch (error) {
+        if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
         playlistFetchError = error
       }
     }
@@ -1763,6 +1853,7 @@ export async function getYouTubeAccountPlaylists() {
           playlistFetchError = undefined
         }
       } catch (error) {
+        if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
         playlistFetchError ??= error
       }
     }
@@ -1847,6 +1938,7 @@ export function parseYouTubeAccountFeedItems(items) {
       const parsed = parseListItem(item)
       if (parsed?.type === 'video' && parsed.videoId) return parsed
     } catch (error) {
+      if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
       console.warn('Could not parse a subscription video; trying a fallback', error)
     }
     return getYouTubeAccountVideoFallback(item)

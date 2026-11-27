@@ -83,39 +83,40 @@ async function testYouTubeIAuth() {
   assert.equal(cloneContext.createAuthenticatedVideoSession(session, 'visitor', ''), null)
   assert.equal(cloneContext.createAuthenticatedVideoSession({ ...session, logged_in: false }, 'visitor', 'proof'), null)
 
-  // Force expiry after sign-in: youtubei.js should refresh before the next request
-  // and emit the new credentials so MacTube can persist them.
-  let updated
+  // A 401 from a real youtubei.js per-video session is retried with the
+  // centrally refreshed bearer, while preserving visitor and proof token.
   let refreshCalls = 0
-  const localSource = fs.readFileSync('src/renderer/helpers/api/local.js', 'utf8')
-  const wrapperStart = localSource.indexOf('function createAccountFetch(')
-  const wrapperEnd = localSource.indexOf('\n/**', wrapperStart)
+  let playerCalls = 0
+  const wrapperStart = localCode.indexOf('function createAccountFetch(')
+  const wrapperEnd = localCode.indexOf('\n/**', wrapperStart)
+  const initial = { access_token: 'old-access', refresh_token: 'test-refresh', expiry_date: '2099-01-01T00:00:00.000Z', client: { client_id: 'test', client_secret: 'test' } }
+  const refreshed = { ...initial, access_token: 'refreshed-access', refresh_token: 'rotated-refresh' }
   const wrapperContext = vm.createContext({
-    URL, accountSessionGeneration: 0,
-    fetch: async (request, init) => {
-      if (String(request).includes('/o/oauth2/token')) {
-        refreshCalls++
-        return new Response(JSON.stringify({ access_token: 'refreshed-access', refresh_token: 'rotated-refresh', expires_in: 3600 }), { status: 200 })
-      }
-      assert.equal(init.headers.get('authorization'), 'Bearer refreshed-access')
-      return new Response('{}', { status: 200 })
+    URL, Headers, accountSessionGeneration: 0,
+    window: { ftElectron: { rejectYouTubeAccountToken: async () => { throw Error('unexpected rejection') } } },
+    ensureValidYouTubeAuth: async rejected => { if (rejected) { assert.equal(rejected, 'old-access'); refreshCalls++; return refreshed } return initial },
+    fetch: async (_request, init) => {
+      playerCalls++
+      assert.equal(init.headers.get('authorization'), playerCalls === 1 ? 'Bearer old-access' : 'Bearer refreshed-access')
+      const body = JSON.parse(init.body)
+      assert.equal(body.context.client.visitorData, 'same-visitor')
+      assert.equal(body.serviceIntegrityDimensions.poToken, 'proof-refresh')
+      return new Response('{}', { status: playerCalls === 1 ? 401 : 200 })
     }
   })
-  vm.runInContext(localSource.slice(wrapperStart, wrapperEnd), wrapperContext)
+  vm.runInContext(localCode.slice(wrapperStart, wrapperEnd), wrapperContext)
   let refreshedSession
   const accountFetch = wrapperContext.createAccountFetch(() => ({ session: refreshedSession }), 0)
   refreshedSession = await Session.create({
     client_type: ClientType.TV, retrieve_player: false, retrieve_innertube_config: false,
     generate_session_locally: true, enable_session_cache: false, fetch: accountFetch,
   })
-  refreshedSession.on('update-credentials', ({ credentials }) => { updated = { ...credentials } })
-  await refreshedSession.signIn({ access_token: 'old-access', refresh_token: 'test-refresh', expiry_date: '2099-01-01T00:00:00.000Z', client: { client_id: 'test', client_secret: 'test' } })
-  refreshedSession.oauth.oauth2_tokens.expiry_date = '2000-01-01T00:00:00.000Z'
+  await refreshedSession.signIn({ ...initial })
+  refreshedSession.oauth.shouldRefreshToken = () => false
   const refreshClone = cloneContext.createAuthenticatedVideoSession(refreshedSession, 'same-visitor', 'proof-refresh')
   await refreshClone.actions.execute('/player', { videoId: 'video123456', serviceIntegrityDimensions: { poToken: refreshClone.po_token } })
+  assert.equal(playerCalls, 2)
   assert.equal(refreshCalls, 1)
-  assert.equal(updated.access_token, 'refreshed-access')
-  assert.equal(updated.refresh_token, 'rotated-refresh')
   assert.equal(refreshedSession.oauth.oauth2_tokens.refresh_token, 'rotated-refresh')
 }
 

@@ -75,6 +75,10 @@ let pendingSignInController = null
 
 // Serialize writes so a late account-info update cannot overwrite newer credentials.
 let accountStateWrite = Promise.resolve()
+// One refresh for all renderer windows. Prevent late refreshes restoring a signed-out account.
+let accountAuthGeneration = 0
+let accountRefreshPromise = null
+let accountAuthBlockedUntil = 0
 
 /**
  * @param {string} userDataPath
@@ -165,6 +169,9 @@ async function readAccountState() {
     const parsedState = JSON.parse(serializedState)
 
     if (parsedState?.tokens?.refresh_token) {
+      // youtubei.js treats expires_in as a fresh lifetime in setTokens. Never
+      // retain it across launches or an expired token appears valid for another hour.
+      delete parsedState.tokens.expires_in
       accountState = {
         isSignedIn: true,
         name: parsedState.name ?? null,
@@ -219,15 +226,94 @@ function saveAccountState() {
 /**
  * Saves tokens that were refreshed by the renderer so that they survive a restart
  * @param {AccountTokens} tokens
+ * @param {string|undefined} expectedAccessToken
  */
-export async function updateAccountTokens(tokens) {
-  if (!accountState.isSignedIn || !tokens?.access_token || !tokens?.refresh_token) {
+export async function updateAccountTokens(tokens, expectedAccessToken) {
+  if (!accountState.isSignedIn || !tokens?.access_token || !tokens?.refresh_token ||
+    (expectedAccessToken !== undefined && expectedAccessToken !== accountState.tokens?.access_token)) {
     return
   }
 
-  accountState.tokens = tokens
-
+  // Ignore stale events from another renderer after a more recent refresh.
+  const current = accountState.tokens
+  if (current && Number.isFinite(Date.parse(current.expiry_date)) &&
+    Date.parse(tokens.expiry_date) < Date.parse(current.expiry_date)) return
+  const normalized = { ...tokens }
+  delete normalized.expires_in
+  accountState.tokens = { ...current, ...normalized, client: normalized.client ?? current?.client }
   await saveAccountState()
+}
+
+/**
+ * Refresh the TV device-flow credentials before expiry or after a rejected bearer.
+ * The YouTube TV OAuth endpoint is the same endpoint used for QR sign-in.
+ * No token or response body is logged. All windows share one in-flight refresh.
+ * @param {string | null} rejectedToken the access token rejected by a 401, if any
+ * @returns {Promise<AccountTokens | null>}
+ */
+export async function ensureValidYouTubeAuth(rejectedToken = null) {
+  await getLoadedAccountState()
+  const tokens = getAccountTokens()
+  if (!tokens) return null
+  if (Date.now() < accountAuthBlockedUntil) throw new Error('YouTube rejected account authentication. Wait briefly or sign in again.')
+  const expiry = Date.parse(tokens.expiry_date)
+  const needsRefresh = !Number.isFinite(expiry) || Date.now() >= expiry - 300000
+  const force = typeof rejectedToken === 'string' && rejectedToken === tokens.access_token
+  if (!needsRefresh && !force) return tokens
+  if (accountRefreshPromise) return accountRefreshPromise
+
+  const generation = accountAuthGeneration
+  const operation = (async () => {
+    if (!tokens.refresh_token || !tokens.client?.client_id || !tokens.client?.client_secret) {
+      throw new Error('YouTube account credentials are incomplete. Please sign in again.')
+    }
+    const response = await fetch(OAUTH_URLS.token, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'refresh_token',
+        refresh_token: tokens.refresh_token,
+        client_id: tokens.client.client_id,
+        client_secret: tokens.client.client_secret
+      })
+    })
+    if (!response.ok) throw new Error(`YouTube account refresh failed (${response.status}). Please sign in again if this persists.`)
+    const data = await response.json()
+    if (data.error || data.error_code || typeof data.access_token !== 'string' || !data.access_token ||
+      !Number.isFinite(Number(data.expires_in)) || Number(data.expires_in) <= 0) {
+      throw new Error('YouTube account refresh returned invalid credentials. Please sign in again.')
+    }
+    if (generation !== accountAuthGeneration || !accountState.isSignedIn) {
+      throw new Error('The YouTube account session changed.')
+    }
+    const updated = {
+      ...tokens,
+      access_token: data.access_token,
+      refresh_token: typeof data.refresh_token === 'string' && data.refresh_token ? data.refresh_token : tokens.refresh_token,
+      expiry_date: new Date(Date.now() + Number(data.expires_in) * 1000).toISOString()
+    }
+    delete updated.expires_in
+    accountState.tokens = updated
+    await saveAccountState()
+    if (generation !== accountAuthGeneration) throw new Error('The YouTube account session changed.')
+    return updated
+  })()
+  accountRefreshPromise = operation
+  try {
+    return await operation
+  } catch (error) {
+    if (generation === accountAuthGeneration) accountAuthBlockedUntil = Date.now() + 30000
+    throw error
+  } finally {
+    if (accountRefreshPromise === operation) accountRefreshPromise = null
+  }
+}
+
+/** Pause repeated account requests after a freshly refreshed token is rejected. */
+export function rejectYouTubeAccountToken(rejectedToken) {
+  if (typeof rejectedToken === 'string' && rejectedToken === accountState.tokens?.access_token) {
+    accountAuthBlockedUntil = Date.now() + 30000
+  }
 }
 
 /**
@@ -333,9 +419,13 @@ async function pollForAccessToken(client, deviceCode) {
     throw error
   }
 
+  if (!response.ok || !data.access_token || !data.refresh_token || !Number.isFinite(Number(data.expires_in)) || Number(data.expires_in) <= 0) {
+    throw new Error('YouTube returned incomplete sign-in credentials.')
+  }
+  const { expires_in: expiresIn, ...credentials } = data
   return {
-    ...data,
-    expiry_date: new Date(Date.now() + (data.expires_in * 1000)).toISOString(),
+    ...credentials,
+    expiry_date: new Date(Date.now() + (Number(expiresIn) * 1000)).toISOString(),
     client
   }
 }
@@ -432,6 +522,9 @@ export async function startSignIn(onUpdate, onError) {
     waitForAuthorization(client, deviceAndUserCode.device_code, controller.signal, deviceAndUserCode.interval)
       .then(async (tokens) => {
         if (controller.signal.aborted || pendingSignInController !== controller) return
+        accountAuthGeneration++
+        accountRefreshPromise = null
+        accountAuthBlockedUntil = 0
         accountState = {
           isSignedIn: true,
           name: null,
@@ -489,6 +582,9 @@ export async function signOut() {
   await cancelSignIn()
 
   const tokens = accountState.tokens
+  accountAuthGeneration++
+  accountRefreshPromise = null
+  accountAuthBlockedUntil = 0
 
   accountState = getSignedOutAccountState()
 

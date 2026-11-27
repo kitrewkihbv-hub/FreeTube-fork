@@ -31,6 +31,7 @@ export async function loadAccountActivity({ tv, getWebClient, getRawFeed, getRow
       try {
         feed = await feed.getContinuation()
       } catch (error) {
+        if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
         incomplete = true
         errors.push(error)
         break
@@ -44,6 +45,7 @@ export async function loadAccountActivity({ tv, getWebClient, getRawFeed, getRow
     try {
       client = await getClient()
     } catch (error) {
+      if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
       errors.push(error)
       continue
     }
@@ -52,6 +54,7 @@ export async function loadAccountActivity({ tv, getWebClient, getRawFeed, getRow
         feedIncomplete = (await readFeed(client, raw)) || feedIncomplete
         if (videos.length >= 25) return { videos, source: 'youtube', partial: feedIncomplete }
       } catch (error) {
+        if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
         errors.push(error)
       }
     }
@@ -71,6 +74,7 @@ export async function loadAccountActivity({ tv, getWebClient, getRawFeed, getRow
           if (!result || !Array.isArray(result.videos)) throw new Error('No channel videos returned')
           return result.videos.map(video => ({ ...video, author: video.author ?? channel.name, authorId: channel.id }))
         } catch (error) {
+          if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
           failed++
           console.warn('Could not load uploads for a subscribed channel', error)
           return []
@@ -91,6 +95,7 @@ export async function loadAccountActivity({ tv, getWebClient, getRawFeed, getRow
       }
     }
   } catch (error) {
+    if (error?.code === 'YOUTUBE_AUTH_FAILED') throw error
     errors.push(error)
   }
 

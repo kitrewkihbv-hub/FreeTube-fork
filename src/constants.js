@@ -50,6 +50,8 @@ const IpcChannels = {
 
   ACCOUNT_GET_STATE: 'account-get-state',
   ACCOUNT_GET_TOKENS: 'account-get-tokens',
+  ACCOUNT_ENSURE_AUTH: 'account-ensure-auth',
+  ACCOUNT_REJECT_TOKEN: 'account-reject-token',
   ACCOUNT_UPDATE_TOKENS: 'account-update-tokens',
   ACCOUNT_SIGN_IN: 'account-sign-in',
   ACCOUNT_CANCEL_SIGN_IN: 'account-cancel-sign-in',

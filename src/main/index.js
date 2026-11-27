@@ -36,10 +36,12 @@ import { createMusicControlLifecycle } from './musicControlLifecycle.cjs'
 import { createTitleStatusFile } from './titleStatusFile.cjs'
 import {
   cancelSignIn,
+  ensureValidYouTubeAuth,
   getAccountTokens,
   getLoadedAccountState,
   initYoutubeAccount,
   loadAccountState,
+  rejectYouTubeAccountToken,
   signOut,
   startSignIn,
   updateAccountInfo,
@@ -380,7 +382,7 @@ function runApp() {
   })
   function selectMainWindow(window) {
     mainWindow = window
-    if (window && !window.isDestroyed()) titleStatusFile?.update(window.getTitle())
+    if (window && !window.isDestroyed()) titleStatusFile?.update(window.getTitle(), window.webContents.getURL())
   }
   let startupUrl
   let tray = null
@@ -1235,7 +1237,13 @@ function runApp() {
     }
 
     newWindow.on('page-title-updated', (_, title) => {
-      if (newWindow === mainWindow) titleStatusFile?.update(title)
+      if (newWindow === mainWindow) titleStatusFile?.update(title, newWindow.webContents.getURL())
+    })
+
+    newWindow.webContents.on('did-navigate-in-page', () => {
+      if (newWindow === mainWindow && !newWindow.isDestroyed()) {
+        titleStatusFile?.update(newWindow.getTitle(), newWindow.webContents.getURL())
+      }
     })
 
     if (replaceMainWindow || !mainWindow) {
@@ -1471,12 +1479,24 @@ function runApp() {
     return getAccountTokens()
   })
 
-  ipcMain.handle(IpcChannels.ACCOUNT_UPDATE_TOKENS, async (event, tokens) => {
+  ipcMain.handle(IpcChannels.ACCOUNT_ENSURE_AUTH, async (event, rejectedToken) => {
+    if (!isFreeTubeUrl(event.senderFrame.url)) return null
+    return await ensureValidYouTubeAuth(typeof rejectedToken === 'string' ? rejectedToken : null)
+  })
+
+  ipcMain.handle(IpcChannels.ACCOUNT_REJECT_TOKEN, (event, rejectedToken) => {
+    if (isFreeTubeUrl(event.senderFrame.url)) rejectYouTubeAccountToken(rejectedToken)
+  })
+
+  ipcMain.handle(IpcChannels.ACCOUNT_UPDATE_TOKENS, async (event, tokens, expectedAccessToken) => {
     if (!isFreeTubeUrl(event.senderFrame.url)) {
       return
     }
 
-    await updateAccountTokens(tokens)
+    // Token update events belong to the access token the renderer was using.
+    // Ignore events from another window's stale session or a previous login.
+    if (typeof expectedAccessToken !== 'string') return
+    await updateAccountTokens(tokens, expectedAccessToken)
   })
 
   ipcMain.handle(IpcChannels.ACCOUNT_UPDATE, (event, accountInfo) => {

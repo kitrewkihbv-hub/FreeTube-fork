@@ -60,5 +60,15 @@ const channel = (id, name) => ({ id, author: { name, best_thumbnail: { url: `htt
     getSubscriptionsFeed: async () => { throw new Error('no feed') },
   }), /Unable to retrieve YouTube subscriptions/)
 
+  let fallbackCalls = 0
+  const authError = Object.assign(new Error('unauthorized'), { code: 'YOUTUBE_AUTH_FAILED' })
+  await assert.rejects(run({
+    getChannelsFeed: async () => { throw authError },
+    actions: { execute: async () => { fallbackCalls++ } },
+    getGuide: async () => { fallbackCalls++ },
+    getSubscriptionsFeed: async () => { fallbackCalls++ },
+  }), error => error === authError)
+  assert.equal(fallbackCalls, 0, '401 never cascades through subscription fallbacks')
+
   console.log('Subscription importer tests passed')
 })().catch((error) => { console.error(error); process.exitCode = 1 })

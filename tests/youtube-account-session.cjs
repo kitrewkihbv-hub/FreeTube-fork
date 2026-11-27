@@ -11,12 +11,12 @@ let resolvesTokens, creates = 0, listener, saved = []
 let tokensPromise = Promise.resolve({ access_token: 'old', refresh_token: 'refresh', expiry_date: '2099' })
 const context = vm.createContext({
   process: { env: { IS_ELECTRON: true } },
-  window: { ftElectron: { getAccountTokens: () => tokensPromise, updateAccountTokens: async tokens => { saved.push(tokens) } } },
+  window: { ftElectron: { getAccountTokens: () => tokensPromise, ensureValidYouTubeAuth: () => tokensPromise, updateAccountTokens: async tokens => { saved.push(tokens) } } },
   ClientType: { TV: 'TVHTML5' }, TV_CLIENT_USER_AGENT: 'tv', console,
   createInnertube: async options => {
     creates++
     assert.equal(options.clientType, 'TVHTML5')
-    return { session: { logged_in: false, on: (_name, callback) => { listener = callback }, async signIn(tokens) { assert.equal(tokens.access_token, 'old'); this.logged_in = true } } }
+    return { session: { logged_in: false, oauth: { setTokens() {} }, on: (_name, callback) => { listener = callback }, async signIn(tokens) { assert.equal(tokens.access_token, 'old'); this.logged_in = true } } }
   },
 })
 vm.runInContext(code, context)
