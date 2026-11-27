@@ -141,7 +141,12 @@ function runApp() {
   })
   ipcMain.on(IpcChannels.LOCAL_PLAYER_STATE, (event, value) => {
     if (!event.senderFrame || !isFreeTubeUrl(event.senderFrame.url) || event.senderFrame !== event.sender.mainFrame) return
+    const previous = playerRegistry.getPlayer(event.sender.id)?.state.playing
     playerRegistry.setPlayer(event.sender, value)
+    const current = playerRegistry.getPlayer(event.sender.id)?.state.playing
+    if (previous !== current && mainWindow && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents) {
+      publishMainWindowTitle(mainWindow)
+    }
   })
 
   let backendPreference = 'local'
@@ -368,9 +373,14 @@ function runApp() {
     event.preventDefault()
     titleStatusFile.shutdown().finally(() => app.quit())
   })
+  function publishMainWindowTitle(window, title = window.getTitle()) {
+    if (window && !window.isDestroyed()) {
+      titleStatusFile?.update(title, window.webContents.getURL(), playerRegistry.getPlayer(window.webContents.id)?.state.playing)
+    }
+  }
   function selectMainWindow(window) {
     mainWindow = window
-    if (window && !window.isDestroyed()) titleStatusFile?.update(window.getTitle(), window.webContents.getURL())
+    if (window && !window.isDestroyed()) publishMainWindowTitle(window)
   }
   let startupUrl
   let tray = null
@@ -1218,12 +1228,12 @@ function runApp() {
     }
 
     newWindow.on('page-title-updated', (_, title) => {
-      if (newWindow === mainWindow) titleStatusFile?.update(title, newWindow.webContents.getURL())
+      if (newWindow === mainWindow) publishMainWindowTitle(newWindow, title)
     })
 
     newWindow.webContents.on('did-navigate-in-page', () => {
       if (newWindow === mainWindow && !newWindow.isDestroyed()) {
-        titleStatusFile?.update(newWindow.getTitle(), newWindow.webContents.getURL())
+        publishMainWindowTitle(newWindow)
       }
     })
 

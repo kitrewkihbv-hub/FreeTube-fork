@@ -14,7 +14,7 @@ function getVideoId(url) {
   }
 }
 
-function formatWindowTitle(title, url = '') {
+function formatWindowTitle(title, url = '', playing) {
   const clean = String(title || '')
     .replace(/\s*-\s*(MacTube|FreeTube)$/i, '')
     .replace(/[|\r\n]+/g, ' ')
@@ -22,7 +22,7 @@ function formatWindowTitle(title, url = '') {
   if (!clean || /^(MacTube|FreeTube)$/i.test(clean)) return 'IDLE|MACTUBE|STANDBY|'
   const videoId = getVideoId(url)
   const thumbnail = videoId ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` : ''
-  return `PLAYING|${clean}|MACTUBE|${thumbnail}`
+  return `${playing === false ? 'PAUSED' : 'PLAYING'}|${clean}|MACTUBE|${thumbnail}`
 }
 
 // The title-file protocol is intentionally independent of the music-only HTTP API.
@@ -39,9 +39,9 @@ function createTitleStatusFile({ filename = '/tmp/mactube_np.txt', logError = co
     return queue
   }
 
-  function update(title, url) {
+  function update(title, url, playing) {
     if (stopped) return queue
-    const content = formatWindowTitle(title, url)
+    const content = formatWindowTitle(title, url, playing)
     return enqueue(async () => {
       const temp = path.join(path.dirname(filename), `.${path.basename(filename)}-${process.pid}-${crypto.randomBytes(12).toString('hex')}`)
       let handle

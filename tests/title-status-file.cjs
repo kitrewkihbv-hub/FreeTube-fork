@@ -13,9 +13,11 @@ const { createTitleStatusFile, formatWindowTitle } = require('../src/main/titleS
   assert.equal(formatWindowTitle('A|B\nC - MacTube'), 'PLAYING|A B C|MACTUBE|')
   const thumb = 'https://i.ytimg.com/vi/abcdefghijk/mqdefault.jpg'
   assert.equal(formatWindowTitle('Song - MacTube', 'file:///app/index.html#/watch/abcdefghijk?t=3'), `PLAYING|Song|MACTUBE|${thumb}`)
+  assert.equal(formatWindowTitle('Song', 'file:///app/index.html#/watch/abcdefghijk', false), `PAUSED|Song|MACTUBE|${thumb}`)
+  assert.equal(formatWindowTitle('Song', 'file:///app/index.html#/watch/abcdefghijk', true), `PLAYING|Song|MACTUBE|${thumb}`)
   assert.equal(formatWindowTitle('Song', 'https://www.youtube.com/watch?v=abcdefghijk&x=2'), `PLAYING|Song|MACTUBE|${thumb}`)
   assert.equal(formatWindowTitle('Song', 'file:///app/index.html#/watch/invalid%7Cid'), 'PLAYING|Song|MACTUBE|')
-  // As in the requested snippet, this is a window-title protocol, not a real play-state indicator.
+  // Outside a loaded player, the legacy title-only fallback remains unchanged.
   assert.equal(formatWindowTitle('Subscriptions - MacTube'), 'PLAYING|Subscriptions|MACTUBE|')
 
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mactube-title-test-'))
@@ -32,6 +34,10 @@ const { createTitleStatusFile, formatWindowTitle } = require('../src/main/titleS
     assert.equal((await fs.stat(filename)).mode & 0o777, 0o600)
     await Promise.all([writer.update('First - MacTube'), writer.update('Second - MacTube')])
     assert.equal(await fs.readFile(filename, 'utf8'), 'PLAYING|Second|MACTUBE|', 'writes stay ordered')
+    await writer.update('Song - MacTube', 'file:///app/index.html#/watch/abcdefghijk', false)
+    assert.equal(await fs.readFile(filename, 'utf8'), `PAUSED|Song|MACTUBE|${thumb}`)
+    await writer.update('Song - MacTube', 'file:///app/index.html#/watch/abcdefghijk', true)
+    assert.equal(await fs.readFile(filename, 'utf8'), `PLAYING|Song|MACTUBE|${thumb}`)
     await writer.cleanup()
     await assert.rejects(fs.stat(filename), { code: 'ENOENT' })
     await writer.update('Reopened - MacTube')

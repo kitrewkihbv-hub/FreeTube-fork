@@ -53,6 +53,6 @@ function createLocalPlayerRegistry({ setServerActive }) {
       .filter(entry => (!musicOnly || musicWindows.has(entry.sender.id)) && !entry.sender.isDestroyed())
       .sort((a, b) => Number(b.state.playing) - Number(a.state.playing) || b.sequence - a.sequence)[0]
   }
-  return { setMusic, setPlayer, activePlayer, hasMusic: () => musicWindows.size > 0 }
+  return { setMusic, setPlayer, activePlayer, getPlayer: id => players.get(id), hasMusic: () => musicWindows.size > 0 }
 }
 module.exports = { createLocalPlayerRegistry }
