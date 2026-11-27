@@ -2275,32 +2275,24 @@ function createPlayerRequestBody(videoId, signatureTimestamp, poToken, clientOve
 }
 
 /**
- * Build a per-video TV session using the visitor ID from the same Web challenge
- * used to mint this video's proof token. Never mutate the shared account session:
- * concurrent videos and account feed requests must not overwrite each other's
- * visitor ID or video-bound token. OAuth refresh remains on the original session.
- * @param {import('youtubei.js').Session} accountSession
- * @param {string|undefined} visitorData
+ * A per-video anonymous WEB_EMBEDDED session. Its visitor is the one used in
+ * the Web BotGuard challenge; account OAuth never enters the player request.
+ * @param {import('youtubei.js').Session} webSession
  * @param {string|undefined} poToken
  * @returns {import('youtubei.js').Session|null}
  */
-function createAuthenticatedVideoSession(accountSession, visitorData, poToken) {
-  if (!accountSession?.logged_in || !accountSession.oauth?.oauth2_tokens ||
-    accountSession.context?.client?.clientName !== 'TVHTML5' ||
-    typeof visitorData !== 'string' || !visitorData || typeof poToken !== 'string' || !poToken) return null
-
-  const context = deepCopy(accountSession.context)
-  context.client.visitorData = visitorData
-  const session = new Session(
-    context, accountSession.api_key, accountSession.api_version, accountSession.account_index,
-    accountSession.config_data, accountSession.player, undefined, accountSession.http.fetch_function,
+function createEmbeddedVideoSession(webSession, poToken) {
+  if (!webSession?.context?.client?.visitorData || typeof poToken !== 'string' || !poToken.trim()) return null
+  const context = deepCopy(webSession.context)
+  context.client.clientName = Constants.CLIENTS.WEB_EMBEDDED.NAME
+  context.client.clientVersion = Constants.CLIENTS.WEB_EMBEDDED.VERSION
+  context.client.clientScreen = 'EMBED'
+  context.thirdParty = { embedUrl: Constants.URLS.YT_BASE }
+  return new Session(
+    context, webSession.api_key, webSession.api_version, webSession.account_index,
+    webSession.config_data, webSession.player, undefined, webSession.http.fetch_function,
     undefined, poToken
   )
-  // Use the already-authenticated OAuth manager. Its refresh event is handled by
-  // the account session; no credentials enter the isolated proof-token window.
-  session.oauth = accountSession.oauth
-  session.logged_in = true
-  return session
 }
 
 /**
@@ -2320,7 +2312,7 @@ function createWatchNextRequestBody(videoId) {
 
 /**
  * @param {string} id
- * @param {{ skipAccountPlayback?: boolean }} [options]
+ * @param {{ skipPreferredPlayer?: boolean }} [options]
  * @returns {Promise<{
  *   info: import('youtubei.js').YT.VideoInfo,
  *   poToken: string | undefined,
@@ -2333,7 +2325,7 @@ function createWatchNextRequestBody(videoId) {
  *   adEndTimeUnixMs: number
  * }>}
  */
-export async function getLocalVideoInfo(id, { skipAccountPlayback = false } = {}) {
+export async function getLocalVideoInfo(id, { skipPreferredPlayer = false } = {}) {
   let responseTime
   let totalAdTimeMilliseconds = 0
 
@@ -2359,13 +2351,13 @@ export async function getLocalVideoInfo(id, { skipAccountPlayback = false } = {}
     })
   }
 
-  // Await the saved TV OAuth session before making playback requests. If sign-in
-  // fails, preserve the existing signed-out playback path rather than logging tokens.
+  // TV OAuth is used only for account operations and optional history pings,
+  // never for player stream extraction. Playback remains possible signed out.
   let accountClient = null
   try {
-    if (!skipAccountPlayback) accountClient = await getYouTubeAccountInnertube()
+    accountClient = await getYouTubeAccountInnertube()
   } catch {
-    console.warn('Could not initialize the YouTube account for playback; trying signed-out playback.')
+    console.warn('Could not initialize the YouTube account for watch reporting; using anonymous playback.')
   }
   const playbackGeneration = accountSessionGeneration
   const htmlExtracts = await getWatchHTMLWatchPage(id, fetchFunc)
@@ -2405,27 +2397,19 @@ export async function getLocalVideoInfo(id, { skipAccountPlayback = false } = {}
   let playerResponse
   let nextResponse
   let context = htmlExtracts.session.context
-  let usedAccountPlayer = false
-  let playbackSession = null
+  let usedPreferredPlayer = false
 
-  // The Web challenge and TV player request use the same visitor ID, but the
-  // Web proof token may still be rejected for the TV client. Each video gets an
-  // isolated session so other requests cannot change its token or visitor ID.
-  if (accountClient && playbackGeneration === accountSessionGeneration) {
+  // The embedded session shares only the challenge's Web visitor and proof,
+  // never the signed-in TV OAuth manager. YouTube can still reject this token.
+  if (!skipPreferredPlayer && process.env.IS_ELECTRON) {
     try {
-      playbackSession = createAuthenticatedVideoSession(
-        accountClient.session, htmlExtracts.session.context.client.visitorData, contentPoToken
-      )
-      if (playbackSession) {
-        let candidate = await playbackSession.actions.execute('/player',
-          createPlayerRequestBody(id, player.signature_timestamp, playbackSession.po_token))
+      let streamSession = createEmbeddedVideoSession(htmlExtracts.session, contentPoToken)
+      if (streamSession) {
+        let candidate = await streamSession.actions.execute('/player',
+          createPlayerRequestBody(id, player.signature_timestamp, streamSession.po_token, 'WEB_EMBEDDED'))
         const status = candidate?.data?.playabilityStatus?.status
-        if (process.env.IS_ELECTRON && playbackGeneration === accountSessionGeneration &&
-          (status === 'LOGIN_REQUIRED' || status === 'UNPLAYABLE')) {
+        if (status === 'LOGIN_REQUIRED' || status === 'UNPLAYABLE') {
           try {
-            // youtubei.js uses the same protobuf encoding when generating a local
-            // visitor. Request a new challenge with this exact ID; never reuse the
-            // original HTML's embedded challenge for the retry.
             const retryVisitor = ProtoUtils.encodeVisitorData(Utils.generateRandomString(11), Math.floor(Date.now() / 1000))
             if (!retryVisitor || retryVisitor === htmlExtracts.session.context.client.visitorData) {
               throw new Error('Could not create a fresh visitor ID')
@@ -2436,43 +2420,39 @@ export async function getLocalVideoInfo(id, { skipAccountPlayback = false } = {}
               id, JSON.stringify(retryContext), JSON.stringify(htmlExtracts.initialAttestationData),
               JSON.stringify(htmlExtracts.ytConfig), true
             )
-            if (typeof retryToken !== 'string' || !retryToken.trim()) {
-              throw new Error('BotGuard returned an empty retry proof token')
-            }
-            if (playbackGeneration === accountSessionGeneration) {
-              const retrySession = createAuthenticatedVideoSession(accountClient.session, retryVisitor, retryToken)
-              if (retrySession) {
-                candidate = await retrySession.actions.execute('/player',
-                  createPlayerRequestBody(id, player.signature_timestamp, retrySession.po_token))
-                playbackSession = retrySession
-              }
+            if (typeof retryToken !== 'string' || !retryToken.trim()) throw new Error('BotGuard returned an empty retry proof token')
+            const retryWebSession = buildSessionFromYtConfig({ ...htmlExtracts.ytConfig, INNERTUBE_CONTEXT: retryContext }, fetchFunc)
+            const retrySession = createEmbeddedVideoSession(retryWebSession, retryToken)
+            if (retrySession) {
+              candidate = await retrySession.actions.execute('/player',
+                createPlayerRequestBody(id, player.signature_timestamp, retrySession.po_token, 'WEB_EMBEDDED'))
+              streamSession = retrySession
             }
           } catch {
-            console.warn('Authenticated playback fresh challenge retry failed; trying signed-out playback.')
+            console.warn('Embedded playback fresh challenge retry failed; trying the Web fallback.')
           }
         }
         const data = candidate?.data
         const streams = data?.streamingData
-        if (playbackGeneration === accountSessionGeneration && data?.playabilityStatus?.status === 'OK' &&
+        if (data?.playabilityStatus?.status === 'OK' &&
           (!data.videoDetails?.videoId || data.videoDetails.videoId === id) &&
           (streams?.formats?.length || streams?.adaptiveFormats?.length || streams?.hlsManifestUrl || streams?.dashManifestUrl || streams?.serverAbrStreamingUrl)) {
           playerResponse = candidate
-          context = playbackSession.context
-          usedAccountPlayer = true
-          contentPoToken = playbackSession.po_token
+          context = streamSession.context
+          usedPreferredPlayer = true
+          contentPoToken = streamSession.po_token
           player.po_token = contentPoToken
           totalAdTimeMilliseconds = extractTotalAdTimeMilliseconds(data)
           responseTime = Date.now()
         }
       }
     } catch {
-      console.warn('Authenticated TV playback request failed; trying signed-out playback.')
+      console.warn('Embedded playback request failed; trying the Web fallback.')
     }
   }
 
-  if (usedAccountPlayer) {
-    // Keep Web watch-next metadata (comments, chapters and live chat) while using
-    // the TV player response. Request it only if it wasn't present in the HTML.
+  if (usedPreferredPlayer) {
+    // Preserve Web watch-next metadata for comments, chapters and live chat.
     nextResponse = htmlExtracts.nextResponse
       ? { data: htmlExtracts.nextResponse }
       : await htmlExtracts.session.actions.execute('/next', createWatchNextRequestBody(id))
@@ -2512,7 +2492,7 @@ export async function getLocalVideoInfo(id, { skipAccountPlayback = false } = {}
   }
 
   if (
-    !usedAccountPlayer && playerResponse?.data &&
+    !usedPreferredPlayer && playerResponse?.data &&
     (playerResponse.data.videoDetails?.isLive ||
     playerResponse.data.videoDetails?.isPostLiveDvr) &&
     !playerResponse.data.videoDetails?.isUpcoming &&
@@ -2532,12 +2512,12 @@ export async function getLocalVideoInfo(id, { skipAccountPlayback = false } = {}
   try {
     info = new YT.VideoInfo([playerResponse, nextResponse], htmlExtracts.session.actions, cpn)
   } catch (error) {
-    // TV responses can contain unsupported structures. Keep the existing Web
-    // player if it was already available instead of failing the whole watch page.
-    if (!usedAccountPlayer || !htmlExtracts.playerResponse) throw error
+    // Some embedded responses may contain unsupported structures. Keep the
+    // original Web player if available rather than failing the watch page.
+    if (!usedPreferredPlayer || !htmlExtracts.playerResponse) throw error
     playerResponse = { data: htmlExtracts.playerResponse }
     context = htmlExtracts.session.context
-    usedAccountPlayer = false
+    usedPreferredPlayer = false
     contentPoToken = originalContentPoToken
     player.po_token = originalContentPoToken
     totalAdTimeMilliseconds = extractTotalAdTimeMilliseconds(playerResponse.data)
@@ -2551,6 +2531,7 @@ export async function getLocalVideoInfo(id, { skipAccountPlayback = false } = {}
   let { clientName, clientVersion, osName, osVersion } = context.client
 
   let hasTrailer = info.has_trailer
+  let canReportWatch = !hasTrailer
   let trailerIsAgeRestricted = info.getTrailerInfo() === null
 
   if (
@@ -2570,6 +2551,8 @@ export async function getLocalVideoInfo(id, { skipAccountPlayback = false } = {}
       const bypassedInfo = await webEmbeddedInnertube.getBasicInfo(videoId, { client: 'WEB_EMBEDDED', po_token: contentPoToken })
 
       if (bypassedInfo.playability_status.status === 'OK' && bypassedInfo.streaming_data) {
+        // This separately fetched player may use different tracking metadata.
+        canReportWatch = false
         info.playability_status = bypassedInfo.playability_status
         info.streaming_data = bypassedInfo.streaming_data
         info.basic_info.start_timestamp = bypassedInfo.basic_info.start_timestamp
@@ -2656,14 +2639,21 @@ export async function getLocalVideoInfo(id, { skipAccountPlayback = false } = {}
     }
   }
 
+  // If the selected response omitted tracking URLs, use the original Web
+  // response only when it explicitly identifies the same video. YouTube may
+  // still ignore cross-client tracking; never invent tracking parameters.
+  const tracking = playerResponse.data.playbackTracking ??
+    (htmlExtracts.playerResponse?.videoDetails?.videoId === id ? htmlExtracts.playerResponse.playbackTracking : undefined)
+
   return {
     info,
-    usedAccountPlayback: usedAccountPlayer,
-    // Tracking is best-effort and only used when Remember Watch History is on.
-    watchTracker: usedAccountPlayer
+    usedPreferredPlayer,
+    // Tracking URLs come from the chosen player, but pings use TV OAuth. They
+    // are best-effort and only sent while Remember Watch History is enabled.
+    watchTracker: canReportWatch && accountClient?.session?.logged_in && playbackGeneration === accountSessionGeneration
       ? createYouTubeWatchTracker({
-          session: playbackSession,
-          tracking: playerResponse.data.playbackTracking,
+          session: accountClient.session,
+          tracking,
           cpn,
           isActive: () => playbackGeneration === accountSessionGeneration && accountInnertube === accountClient,
         })

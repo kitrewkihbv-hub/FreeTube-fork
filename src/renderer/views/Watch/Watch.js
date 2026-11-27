@@ -195,7 +195,7 @@ export default defineComponent({
       currentPlaybackRate: null,
 
       isReloadingView: false,
-      usedAccountPlayback: false,
+      usedPreferredPlayer: false,
     }
   },
   computed: {
@@ -417,7 +417,7 @@ export default defineComponent({
       if (Number.isFinite(seconds)) this.$refs.player?.setCurrentTime(seconds)
     },
     musicTime(seconds) { return formatDurationAsTimestamp(Math.max(0, Math.floor(seconds || 0))) },
-    async reloadView(preferSignedOut = false) {
+    async reloadView(preferWebFallback = false) {
       if (this.isReloadingView) { return }
 
       try {
@@ -443,7 +443,7 @@ export default defineComponent({
 
         switch (this.backendPreference) {
           case 'local':
-            await this.getVideoInformationLocal(preferSignedOut)
+            await this.getVideoInformationLocal(preferWebFallback)
             break
           case 'invidious':
             this.getVideoInformationInvidious()
@@ -458,7 +458,7 @@ export default defineComponent({
       this.accountWatchTracker = null
       this.musicPlaying = false
       this.musicCurrentTime = 0
-      this.usedAccountPlayback = false
+      this.usedPreferredPlayer = false
       this.isLoading = true
       this.isFamilyFriendly = false
       this.isLive = false
@@ -570,16 +570,16 @@ export default defineComponent({
       }
     },
 
-    getVideoInformationLocal: async function (preferSignedOut = false) {
+    getVideoInformationLocal: async function (preferWebFallback = false) {
       if (this.firstLoad) {
         this.isLoading = true
       }
 
       try {
-        const videoInfo = await getLocalVideoInfo(this.videoId, { skipAccountPlayback: preferSignedOut })
+        const videoInfo = await getLocalVideoInfo(this.videoId, { skipPreferredPlayer: preferWebFallback })
         const { info: result, poToken, clientInfo, adEndTimeUnixMs, contentDisclosures, watchTracker } = videoInfo
         this.accountWatchTracker = watchTracker ?? null
-        this.usedAccountPlayback = videoInfo.usedAccountPlayback === true
+        this.usedPreferredPlayer = videoInfo.usedPreferredPlayer === true
         this.contentDisclosures = contentDisclosures || null
 
         const playabilityStatus = result.playability_status
@@ -1670,10 +1670,10 @@ export default defineComponent({
           case 403:
             this.handleWatchProgressAutoSaveWhenProgressEnabled()
 
-            // A TV response can look playable but the media server can still reject
-            // it. Retry the existing signed-out path once before showing an error.
-            if (this.usedAccountPlayback && !this.videoPlayerLoaded && !this.isReloadingView) {
-              this.usedAccountPlayback = false
+            // A playable embedded response can still fail at the media server.
+            // Retry the existing Web path once before showing an error.
+            if (this.usedPreferredPlayer && !this.videoPlayerLoaded && !this.isReloadingView) {
+              this.usedPreferredPlayer = false
               this.reloadView(true).catch(() => { this.errorMessage = '[BAD_HTTP_STATUS: 403] Playback request was rejected.' })
               return
             }

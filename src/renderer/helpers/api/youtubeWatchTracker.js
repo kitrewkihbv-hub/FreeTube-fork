@@ -1,5 +1,5 @@
 /**
- * Create a best-effort watch reporter for an authenticated TV player response.
+ * Create a best-effort TV OAuth watch reporter using the chosen player's tracking URLs.
  * Only YouTube's expected stats URLs are allowed: youtubei.js's HTTP client can
  * attach OAuth credentials to absolute URLs. Never allow redirects or arbitrary hosts.
  * Calls are driven by actual player timeupdate events, not a background timer.

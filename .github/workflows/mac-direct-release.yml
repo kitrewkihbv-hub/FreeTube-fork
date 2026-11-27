@@ -81,15 +81,15 @@ jobs:
 
           Music now has its own dark music-focused interface and searches YouTube Music for songs and music videos. Its 127.0.0.1:8765 desktop-widget API starts only while a Music window is active and stops after the last Music window leaves. While active the API is unauthenticated and allows all web origins: local programs and websites that can reach local-network services may read what is playing or control playback. Previous and shuffle require a playlist. Captions depend on the video and are not guaranteed lyrics. Music search, playback, and widget integration have not been tested live on a Mac.
 
-          Experimental authenticated TV playback now retries once after LOGIN_REQUIRED or UNPLAYABLE with a locally generated visitor ID and a newly requested BotGuard challenge and video-bound Web proof token. The original signed-out fallback remains. A Web token may not be accepted by the TV client, and real-account playback and macOS behavior have not been verified.
+          Stream extraction now tries an anonymous WEB_EMBEDDED player with the BotGuard Web challenge visitor and video-bound proof token instead of authenticated TV /player. A fresh visitor and challenge may be tried once on rejection; the original Web fallback remains. YouTube may still reject the request or token. Real playback and macOS behavior have not been verified.
 
-          YouTube account watch reporting remains optional and experimental. Local history remains separate.
+          Optional YouTube watch reporting now uses the authenticated TV session with tracking URLs supplied by the chosen anonymous player (or same-video Web response). Those URLs may be missing, rejected, or ignored, so account history is not guaranteed. Local history remains separate.
 
           The Mac app bundles and extracted app archives were scanned with ClamAV; a scan cannot guarantee safety. These builds are ad-hoc signed and not notarized by Apple, so Gatekeeper may warn that Apple cannot verify the app. Such a warning is neither proof of malware nor proof of safety. We cannot recommend bypassing Gatekeeper; a warning-free install requires a Developer ID-signed and notarized release.
 
           Download arm64 for Apple Silicon, or the file without arm64 for Intel. MacTube shares the existing FreeTube data directory, so back up your data before upgrading.
           NOTES
-          gh release create mac-build-27 assets/MacTube-0.26.0.dmg assets/MacTube-0.26.0-arm64.dmg assets/MacTube-0.26.0-mac.zip assets/MacTube-0.26.0-arm64-mac.zip --draft --target "$GITHUB_SHA" --title 'MacTube (mac-build-27)' --notes-file "$RUNNER_TEMP/release-notes.md"
+          gh release create mac-build-28 assets/MacTube-0.26.0.dmg assets/MacTube-0.26.0-arm64.dmg assets/MacTube-0.26.0-mac.zip assets/MacTube-0.26.0-arm64-mac.zip --draft --target "$GITHUB_SHA" --title 'MacTube (mac-build-28)' --notes-file "$RUNNER_TEMP/release-notes.md"
 
   scan-and-publish:
     needs: mac-release
@@ -109,7 +109,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p assets
-          gh release download mac-build-27 --pattern '*.zip' --dir assets
+          gh release download mac-build-28 --pattern '*.zip' --dir assets
           test -f assets/MacTube-0.26.0-mac.zip
           test -f assets/MacTube-0.26.0-arm64-mac.zip
       - name: Install ClamAV and update signatures
@@ -137,4 +137,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-        run: gh release edit mac-build-27 --draft=false
+        run: gh release edit mac-build-28 --draft=false
