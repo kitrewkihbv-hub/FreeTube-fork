@@ -5,7 +5,7 @@ This is an adaptation of the supplied `dynamic-island-2.jsx`. It keeps the origi
 ## Installation
 
 1. Install a MacTube build that includes the opt-in widget bridge. **The original build 30 does not have it.** This source change alone does not update an installed application.
-2. In Übersicht, open the widgets folder. Back up your existing widget, then replace its JSX file with the accompanying `dynamic-island-2.jsx` (do not leave both copies active). Refresh widgets or restart Übersicht.
+2. In Übersicht, open the widgets folder. Back up your existing widget, then replace its JSX file with the accompanying `dynamic-island-new-mactube.jsx` (do not leave both copies active). Refresh widgets or restart Übersicht.
 3. In MacTube General Settings, turn on **Enable local playback widget bridge**. Start a song in Music mode or play a normal video. The widget should show its title and artwork, and send play, pause, previous, next and seek to the selected source.
 4. For a basic check on your Mac, run `curl -i http://127.0.0.1:8766/v1/me/player` during Music playback or `curl -i http://127.0.0.1:8766/youtube/player` during video playback. A loaded player should return JSON; the other mode returns 204. If the bridge is disabled or no player is loaded, the server is normally stopped and curl will not connect.
 

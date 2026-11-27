@@ -82,6 +82,8 @@ export default defineComponent({
   },
   beforeRouteLeave: async function (to, from, next) {
     this.widgetControlsActive = false
+    this.sabrPendingVideoId = null
+    this.sabrResumeVideoId = null
     this.stopLocalWidgetControls?.()
     this.stopWidgetBridgeControls?.()
     if (process.env.IS_ELECTRON) {
@@ -203,6 +205,12 @@ export default defineComponent({
 
       isReloadingView: false,
       selectedPlayer: 'web',
+      sabrReloadInFlight: false,
+      sabrPendingVideoId: null,
+      sabrResumeVideoId: null,
+      sabrRetryVideoId: null,
+      sabrRetryCount: 0,
+      sabrRetryStartPosition: 0,
     }
   },
   computed: {
@@ -361,7 +369,14 @@ export default defineComponent({
     videoPlayerLoaded() { this.syncLocalPlayerState(); this.syncWidgetBridgeState() },
     isLoading() { this.syncLocalPlayerState(); this.syncWidgetBridgeState() },
     errorMessage() { this.syncLocalPlayerState(); this.syncWidgetBridgeState() },
-    musicPlaying() { this.syncLocalPlayerState(); this.syncWidgetBridgeState() },
+    musicPlaying(playing) {
+      this.syncLocalPlayerState()
+      this.syncWidgetBridgeState()
+      if (playing) {
+        if (this.sabrResumeVideoId === this.videoId) this.sabrResumeVideoId = null
+        if (this.sabrPendingVideoId === this.videoId) this.onSabrReloadRequested()
+      }
+    },
     videoLengthSeconds() { this.syncWidgetBridgeState() },
     videoId() { this.syncWidgetBridgeState() },
     isReloadingView() { this.syncWidgetBridgeState() },
@@ -375,6 +390,10 @@ export default defineComponent({
       this.syncLocalPlayerState()
     },
     async $route() {
+      if (this.$route.params.id !== this.videoId) {
+        this.sabrPendingVideoId = null
+        this.sabrResumeVideoId = null
+      }
       this.syncLocalPlayerState()
       this.syncWidgetBridgeState()
       await this.reloadView()
@@ -473,7 +492,7 @@ export default defineComponent({
       if (Number.isFinite(seconds)) this.$refs.player?.setCurrentTime(seconds)
     },
     musicTime(seconds) { return formatDurationAsTimestamp(Math.max(0, Math.floor(seconds || 0))) },
-    async reloadView(playerFallbackStage = 0) {
+    async reloadView(playerFallbackStage = 0, reloadTimestamp = null) {
       if (this.isReloadingView) { return }
 
       try {
@@ -494,6 +513,7 @@ export default defineComponent({
         this.activeFormat = this.defaultVideoFormat
 
         this.checkIfTimestamp()
+        if (reloadTimestamp !== null) this.oneTimeTimestamp = reloadTimestamp
         this.checkIfPlaylist()
         this.setViewingModeOnRouteChange()
 
@@ -1350,6 +1370,10 @@ export default defineComponent({
      */
     handleTimeUpdate: function (currentSeconds) {
       this.musicCurrentTime = currentSeconds
+      // Sustained forward playback clears the short-term reload budget.
+      if (this.sabrRetryCount && this.sabrRetryVideoId === this.videoId && currentSeconds >= this.sabrRetryStartPosition + 30) {
+        this.sabrRetryCount = 0
+      }
       this.updateCurrentChapter(currentSeconds)
       if (this.rememberHistory && !this.isUpcoming && this.$refs.player?.hasLoaded && !this.$refs.player.isPaused()) {
         this.accountWatchTracker?.update(currentSeconds)
@@ -2135,14 +2159,51 @@ export default defineComponent({
     },
 
     onManualReloadRequested: throttle(async function () {
+      this.sabrPendingVideoId = null
+      this.sabrResumeVideoId = null
+      this.sabrRetryCount = 0
       await this.saveWatchProgressForReload()
       await this.reloadView()
     }, 1000),
 
     async onSabrReloadRequested() {
-      showToast('Reloading player according to SABR request')
-      await this.saveWatchProgressForReload()
-      await this.reloadView()
+      if (this.isReloadingView || this.sabrReloadInFlight || this.$route.params.id !== this.videoId) return
+      const player = this.$refs.player
+      if (!player) return
+      const videoId = this.videoId
+      if (this.sabrRetryVideoId !== videoId) {
+        this.sabrRetryVideoId = videoId
+        this.sabrRetryCount = 0
+      }
+      // The streaming layer already aborted its requests. Keep a paused player
+      // paused and recover only when the user explicitly presses play again.
+      if (player.hasLoaded && player.isPaused()) {
+        this.sabrPendingVideoId = videoId
+        return
+      }
+      this.sabrPendingVideoId = null
+      if (this.sabrRetryCount >= 3) {
+        showToast('The stream keeps requesting reloads. Automatic retries stopped; reload manually to try again.', 10000)
+        return
+      }
+      const timestamp = this.getTimestamp()
+      const nextStage = this.selectedPlayer === 'authenticated-embedded' ? 1 : this.selectedPlayer === 'embedded' ? 2 : 3
+      this.sabrRetryCount++
+      this.sabrRetryStartPosition = timestamp
+      this.sabrResumeVideoId = player.isPaused() ? null : videoId
+      this.sabrReloadInFlight = true
+      try {
+        // Pass progress directly: changing the route would cause another reload.
+        await this.reloadView(nextStage, timestamp)
+      } catch (error) {
+        this.sabrResumeVideoId = null
+        console.warn('SABR recovery failed:', error)
+        if (this.videoId === videoId && this.$route.params.id === videoId) {
+          showToast('Could not reload the video stream. Try reloading manually.', 10000)
+        }
+      } finally {
+        this.sabrReloadInFlight = false
+      }
     },
 
     ...mapActions([

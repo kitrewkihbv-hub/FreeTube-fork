@@ -138,6 +138,7 @@
           :title="videoTitle"
           :theatre-possible="theatrePossible"
           :use-theatre-mode="useTheatreMode"
+          :autoplay-override="sabrResumeVideoId === videoId"
           :autoplay-possible="autoplayPossible"
           :autoplay-enabled="autoplayEnabled"
           :watching-playlist="watchingPlaylist"

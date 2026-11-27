@@ -15,7 +15,7 @@
       crossorigin="anonymous"
       playsinline
       :style="{ transform: `scale(${videoWidth / 100}, ${videoHeight / 100})` }"
-      :autoplay="autoplayVideos ? true : null"
+      :autoplay="autoplayVideos || autoplayOverride ? true : null"
       :poster="thumbnail"
       @play="handlePlay"
       @pause="handlePause"
@@ -290,6 +290,10 @@ const props = defineProps({
     default: false
   },
   useTheatreMode: {
+    type: Boolean,
+    default: false
+  },
+  autoplayOverride: {
     type: Boolean,
     default: false
   },

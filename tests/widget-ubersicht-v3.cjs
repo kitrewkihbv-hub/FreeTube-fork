@@ -5,6 +5,7 @@ const os = require('node:os')
 const path = require('node:path')
 const { execFileSync } = require('node:child_process')
 const source = fs.readFileSync('integrations/ubersicht/dynamic-island-2.jsx', 'utf8')
+assert.equal(fs.readFileSync('integrations/ubersicht/dynamic-island-new-mactube.jsx', 'utf8'), source, 'released copy matches the latest adapted widget')
 const parseStart = source.indexOf('const parseMacTube = '), parseEnd = source.indexOf('const ingest = ', parseStart)
 assert.ok(parseStart >= 0 && parseEnd > parseStart)
 const parse = vm.runInNewContext(`(()=>{${source.slice(parseStart, parseEnd)};return parseMacTube})()`, {
@@ -50,6 +51,7 @@ try {
   assert.equal(parse(lines[found + 1]).title, 'Café')
   assert.equal(lines[lines.indexOf('###DI-MACTUBE_MUSIC') + 1], '')
 } finally { fs.rmSync(temp, { recursive: true, force: true }) }
+assert.match(source, /const visible = s\.hover \|\| s\.expanded \|\| persistent\.length > 0/, 'actively playing sources remain visible after transient expires')
 assert.match(source, /###DI-MACTUBE_VIDEO/)
 assert.match(source, /###DI-MACTUBE_MUSIC/)
 assert.match(source, /parseTrack\(sec\.SPOT, 'spotify'\)/, 'original Spotify integration remains')

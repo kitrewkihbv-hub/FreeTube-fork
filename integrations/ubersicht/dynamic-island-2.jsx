@@ -658,7 +658,7 @@ export const render = (s, dispatch) => {
   } else if (persistent.length) { mode = persistent.at(0); bubble = persistent.at(1) || null; }
 
   const page = s.music ? (s.page === 'home' ? 'home' : 'music') : 'home';
-  const visible = s.hover || s.expanded || (CONFIG.popOnEvents && !!tr);
+  const visible = s.hover || s.expanded || persistent.length > 0 || (CONFIG.popOnEvents && !!tr);
   const w = SIZES[mode].at(0);
   const h = SIZES[mode].at(1);
   const radius = h <= 40 ? h / 2 : mode === 'expanded' ? 46 : 40;
