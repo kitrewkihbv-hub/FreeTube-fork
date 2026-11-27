@@ -83,7 +83,12 @@ export default defineComponent({
   beforeRouteLeave: async function (to, from, next) {
     this.widgetControlsActive = false
     this.stopLocalWidgetControls?.()
-    if (process.env.IS_ELECTRON) window.ftElectron.updateLocalPlayerState(null)
+    this.stopWidgetBridgeControls?.()
+    if (process.env.IS_ELECTRON) {
+      window.ftElectron.updateLocalPlayerState(null)
+      if (this.widgetBridgePublished) window.ftElectron.updateWidgetBridgeState(null)
+      this.widgetBridgePublished = false
+    }
     this.handleRouteChange()
     window.removeEventListener('beforeunload', this.handleWatchProgressAutoSave)
     document.removeEventListener('keydown', this.resetAutoplayInterruptionTimeout)
@@ -117,6 +122,8 @@ export default defineComponent({
       musicCurrentTime: 0,
       musicShowDetails: false,
       stopLocalWidgetControls: null,
+      stopWidgetBridgeControls: null,
+      widgetBridgePublished: false,
       widgetControlsActive: false,
       isFamilyFriendly: false,
       isLive: false,
@@ -199,6 +206,7 @@ export default defineComponent({
     }
   },
   computed: {
+    widgetBridgeEnabled() { return this.$store.getters.getEnableLocalWidgetBridge === true },
     historyEntry: function () {
       return this.$store.getters.getHistoryCacheById[this.videoId]
     },
@@ -348,12 +356,19 @@ export default defineComponent({
     }
   },
   watch: {
-    videoTitle() { this.syncLocalPlayerState() },
-    channelName() { this.syncLocalPlayerState() },
-    videoPlayerLoaded() { this.syncLocalPlayerState() },
-    isLoading() { this.syncLocalPlayerState() },
-    errorMessage() { this.syncLocalPlayerState() },
-    musicPlaying() { this.syncLocalPlayerState() },
+    videoTitle() { this.syncLocalPlayerState(); this.syncWidgetBridgeState() },
+    channelName() { this.syncLocalPlayerState(); this.syncWidgetBridgeState() },
+    videoPlayerLoaded() { this.syncLocalPlayerState(); this.syncWidgetBridgeState() },
+    isLoading() { this.syncLocalPlayerState(); this.syncWidgetBridgeState() },
+    errorMessage() { this.syncLocalPlayerState(); this.syncWidgetBridgeState() },
+    musicPlaying() { this.syncLocalPlayerState(); this.syncWidgetBridgeState() },
+    videoLengthSeconds() { this.syncWidgetBridgeState() },
+    videoId() { this.syncWidgetBridgeState() },
+    isReloadingView() { this.syncWidgetBridgeState() },
+    musicCurrentTime(value, previous) {
+      if (this.widgetBridgeEnabled && Math.floor(value) !== Math.floor(previous)) this.syncWidgetBridgeState()
+    },
+    widgetBridgeEnabled() { this.syncWidgetBridgeState() },
     musicShuffle() { this.syncLocalPlayerState() },
     watchingPlaylist(value) {
       if (!value) this.musicShuffle = false
@@ -361,6 +376,7 @@ export default defineComponent({
     },
     async $route() {
       this.syncLocalPlayerState()
+      this.syncWidgetBridgeState()
       await this.reloadView()
     },
     userPlaylistsReady() {
@@ -381,7 +397,9 @@ export default defineComponent({
     if (process.env.IS_ELECTRON) {
       this.widgetControlsActive = true
       this.stopLocalWidgetControls = window.ftElectron.onLocalPlayerCommand(this.handleLocalPlayerCommand)
+      this.stopWidgetBridgeControls = window.ftElectron.onWidgetBridgeCommand(this.handleWidgetBridgeCommand)
       this.syncLocalPlayerState()
+      this.syncWidgetBridgeState()
     }
     this.onMountedDependOnLocalStateLoading()
   },
@@ -397,6 +415,44 @@ export default defineComponent({
             shuffle: this.watchingPlaylist && this.musicShuffle,
           }
         : null)
+    },
+    syncWidgetBridgeState() {
+      if (!process.env.IS_ELECTRON || !this.widgetControlsActive) return
+      const loaded = this.widgetBridgeEnabled && this.videoPlayerLoaded && !this.isLoading && !this.isReloadingView && !this.errorMessage && this.videoTitle && this.videoId === this.$route.params.id
+      if (loaded) {
+        this.widgetBridgePublished = true
+        window.ftElectron.updateWidgetBridgeState({
+          mode: this.$route.query.music === '1' ? 'music' : 'video',
+          videoId: this.videoId,
+          title: this.videoTitle,
+          artist: this.channelName,
+          playing: this.musicPlaying,
+          duration: Number(this.videoLengthSeconds) || 0,
+          position: Number(this.musicCurrentTime) || 0,
+        })
+      } else if (this.widgetBridgePublished) {
+        this.widgetBridgePublished = false
+        window.ftElectron.updateWidgetBridgeState(null)
+      }
+    },
+    handleWidgetBridgeCommand(command) {
+      const player = this.$refs.player
+      const mode = this.$route.query.music === '1' ? 'music' : 'video'
+      if (!this.widgetControlsActive || !this.widgetBridgeEnabled || !this.videoPlayerLoaded || this.isLoading || this.isReloadingView || this.errorMessage || !player ||
+        command?.mode !== mode || command.videoId !== this.videoId || this.$route.params.id !== this.videoId) return
+      switch (command.action) {
+        case 'play': if (player.isPaused()) player.togglePlayback(); break
+        case 'pause': if (!player.isPaused()) player.pause(); break
+        case 'next': this.handleSkipToNext(); break
+        case 'previous':
+          if (player.getCurrentTime() > 4) player.setCurrentTime(0)
+          else if (this.watchingPlaylist) this.handleSkipToPrev()
+          else this.$router.back()
+          break
+        case 'seek':
+          if (Number.isFinite(command.seconds) && command.seconds >= 0 && this.videoLengthSeconds > 0 && command.seconds <= this.videoLengthSeconds) player.setCurrentTime(command.seconds)
+          break
+      }
     },
     handleLocalPlayerCommand(command) {
       if (this.$route.query.music !== '1' || !this.videoPlayerLoaded || this.isLoading || this.errorMessage) return

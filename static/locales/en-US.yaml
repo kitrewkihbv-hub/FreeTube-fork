@@ -362,6 +362,8 @@ Settings:
     Fallback to Non-Preferred Backend on Failure: Fallback to Non-Preferred Backend
       on Failure
     Enable Search Suggestions: Enable Search Suggestions
+    Local Widget Bridge: Enable local playback widget bridge
+    Local Widget Bridge Tooltip: Local programs can read and control your current video or music without authentication. The bridge runs only while a player is loaded.
     Open Deep Links In New Window: Open URLs Passed to FreeTube in a New Window
     Minimize to system tray: Minimize to system tray
     Auto Load Next Page:

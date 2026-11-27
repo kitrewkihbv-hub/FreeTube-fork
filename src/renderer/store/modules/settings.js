@@ -180,6 +180,7 @@ const state = {
   disableChannelLinks: false,
   displayVideoPlayButton: false,
   enableSearchSuggestions: true,
+  enableLocalWidgetBridge: false,
   enableSubtitlesByDefault: false,
   enterFullscreenOnDisplayRotate: false,
   externalLinkHandling: '',
