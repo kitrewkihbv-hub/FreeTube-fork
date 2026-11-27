@@ -121,7 +121,11 @@ function runApp() {
       .sort((a, b) => Number(b.state.playing) - Number(a.state.playing) || b.sequence - a.sequence)[0]
   }
   const musicControl = createMusicControlLifecycle(() => startLocalControlServer({
-    getStatus: () => activeLocalPlayer()?.state ?? emptyPlayerState,
+    getStatus: () => {
+      const state = activeLocalPlayer()?.state ?? emptyPlayerState
+      return { title: state.title, artist: state.artist, playing: state.playing, shuffle: state.shuffle }
+    },
+    getPlayback: () => activeLocalPlayer()?.state ?? null,
     onCommand: command => {
       const entry = activeLocalPlayer()
       if (entry && !entry.sender.isDestroyed()) entry.sender.send(IpcChannels.LOCAL_PLAYER_COMMAND, command)
@@ -166,6 +170,9 @@ function runApp() {
         artist: typeof value.artist === 'string' ? value.artist.slice(0, 500) : '',
         playing: value.playing === true,
         shuffle: value.shuffle === true,
+        videoId: typeof value.videoId === 'string' && /^[A-Za-z0-9_-]{11}$/.test(value.videoId) ? value.videoId : '',
+        durationMs: Number.isFinite(value.durationMs) ? Math.max(0, Math.min(value.durationMs, 604800000)) : 0,
+        progressMs: Number.isFinite(value.progressMs) ? Math.max(0, Math.min(value.progressMs, 604800000)) : 0,
       }
     })
   })

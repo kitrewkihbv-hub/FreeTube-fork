@@ -3365,10 +3365,14 @@ function toggleCaptions() {
   return true
 }
 
+function resumePlayback() {
+  if (video.value?.paused) video.value.play().catch(error => console.warn('Could not start playback:', error))
+}
+
 function togglePlayback() {
   if (!video.value) return
   if (video.value.paused) {
-    video.value.play().catch(error => console.warn('Could not start playback:', error))
+    resumePlayback()
   } else {
     video.value.pause()
   }
@@ -3377,6 +3381,7 @@ function togglePlayback() {
 defineExpose({
   hasLoaded,
   togglePlayback,
+  resumePlayback,
   toggleCaptions,
 
   isPaused: () => video.value.paused,

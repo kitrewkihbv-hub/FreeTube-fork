@@ -1,10 +1,30 @@
 // The intentionally unauthenticated local widget interface. See README for its
 // cross-origin and privacy implications. No credentials or browsing history are exposed.
 const http = require('node:http')
+const { createSpotifyPlayerAdapter } = require('./spotifyPlayerAdapter.cjs')
 
-function startLocalControlServer({ getStatus, onCommand, port = 8765, logError = console.error }) {
+function startLocalControlServer({ getStatus, getPlayback = getStatus, onCommand, port = 8765, logError = console.error }) {
+  const spotifyPlayer = createSpotifyPlayerAdapter({ getPlayback, onCommand })
   const commands = new Set(['/prev', '/next', '/toggle', '/shuffle'])
-  const server = http.createServer((request, response) => {
+  const server = http.createServer(async (request, response) => {
+    // The Spotify-style routes deliberately do not inherit legacy wildcard CORS.
+    if ((request.url || '').split('?')[0].startsWith('/v1/me/player')) {
+      const host = (request.headers.host || '').toLowerCase()
+      if (![`127.0.0.1:${server.address()?.port}`, `localhost:${server.address()?.port}`].includes(host)) {
+        response.writeHead(403).end()
+        return
+      }
+      response.setHeader('Cache-Control', 'no-store')
+      try {
+        const url = new URL(request.url, 'http://localhost')
+        await spotifyPlayer(request, response, url)
+      } catch (error) {
+        logError(`MacTube local player adapter request failed: ${error.message}`)
+        if (!response.headersSent) response.writeHead(500).end()
+        else response.destroy()
+      }
+      return
+    }
     response.setHeader('Access-Control-Allow-Origin', '*')
     response.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
     response.setHeader('Access-Control-Allow-Headers', 'Content-Type')

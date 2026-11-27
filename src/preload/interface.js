@@ -14,9 +14,9 @@ let currentUpdateSearchInputTextListener
 export default {
   /** @param {boolean} active */
   setLocalMusicActive: (active) => ipcRenderer.send(IpcChannels.LOCAL_MUSIC_ACTIVE, active),
-  /** @param {{title: string, artist: string, playing: boolean, shuffle: boolean}|null} state */
+  /** @param {{title: string, artist: string, playing: boolean, shuffle: boolean, videoId: string, durationMs: number, progressMs: number}|null} state */
   updateLocalPlayerState: (state) => ipcRenderer.send(IpcChannels.LOCAL_PLAYER_STATE, state),
-  /** @param {(command: string) => void} callback */
+  /** @param {(command: string | {type: string, positionMs: number}) => void} callback */
   onLocalPlayerCommand: (callback) => {
     const listener = (_, command) => callback(command)
     ipcRenderer.on(IpcChannels.LOCAL_PLAYER_COMMAND, listener)

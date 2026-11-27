@@ -356,6 +356,10 @@ export default defineComponent({
     isLoading() { this.syncLocalPlayerState() },
     errorMessage() { this.syncLocalPlayerState() },
     musicPlaying() { this.syncLocalPlayerState() },
+    videoLengthSeconds() { this.syncLocalPlayerState() },
+    musicCurrentTime(value, previous) {
+      if (Math.floor(value) !== Math.floor(previous)) this.syncLocalPlayerState()
+    },
     musicShuffle() { this.syncLocalPlayerState() },
     watchingPlaylist(value) {
       if (!value) this.musicShuffle = false
@@ -398,12 +402,21 @@ export default defineComponent({
             artist: this.channelName,
             playing: this.musicPlaying,
             shuffle: this.watchingPlaylist && this.musicShuffle,
+            videoId: this.videoId,
+            durationMs: Math.round((Number(this.videoLengthSeconds) || 0) * 1000),
+            progressMs: Math.round((Number(this.musicCurrentTime) || 0) * 1000),
           }
         : null)
     },
     handleLocalPlayerCommand(command) {
       if (this.$route.query.music !== '1' || !this.videoPlayerLoaded || this.isLoading || this.errorMessage) return
+      if (command?.type === 'seek' && Number.isSafeInteger(command.positionMs) && command.positionMs >= 0) {
+        this.$refs.player?.setCurrentTime(command.positionMs / 1000)
+        return
+      }
       switch (command) {
+        case 'play': this.$refs.player?.resumePlayback(); break
+        case 'pause': this.$refs.player?.pause(); break
         case 'toggle': this.toggleMusicPlayback(); break
         case 'next': this.handleSkipToNext(); break
         case 'prev': this.handleSkipToPrev(); break
