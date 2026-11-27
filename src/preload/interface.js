@@ -23,6 +23,13 @@ export default {
     return () => ipcRenderer.removeListener(IpcChannels.LOCAL_PLAYER_COMMAND, listener)
   },
 
+  /** @param {(command: string | {type: string, positionMs: number}) => void} callback */
+  onSpotifyPlayerCommand: (callback) => {
+    const listener = (_, command) => callback(command)
+    ipcRenderer.on(IpcChannels.SPOTIFY_PLAYER_COMMAND, listener)
+    return () => ipcRenderer.removeListener(IpcChannels.SPOTIFY_PLAYER_COMMAND, listener)
+  },
+
   /** @param {(command: string) => void} callback */
   onDynamicIslandCommand: (callback) => {
     const listener = (_, command) => callback(command)

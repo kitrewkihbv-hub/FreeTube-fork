@@ -17,11 +17,16 @@ function request(port, path, options = {}) {
 
 ;(async () => {
   let player = null
-  const commands = []
-  const server = startLocalControlServer({ port: 0, getStatus: () => ({ title: '', artist: '', playing: false, shuffle: false }), getPlayback: () => player, onCommand: command => commands.push(command) })
+  let legacyEnabled = false
+  let rejectDispatch = false
+  const commands = [], legacyCommands = []
+  const server = startLocalControlServer({ port: 0, getStatus: () => ({ title: '', artist: '', playing: false, shuffle: false }), getPlayback: () => player, isLegacyEnabled: () => legacyEnabled, onCommand: command => legacyCommands.push(command), onSpotifyCommand: command => { if (rejectDispatch) return false; commands.push(command) } })
   await once(server, 'listening')
   const port = server.address().port
   try {
+    assert.equal((await request(port, '/status')).status, 404, 'legacy API remains inaccessible for an ordinary Watch player')
+    assert.equal((await request(port, '/next')).status, 404)
+    assert.deepEqual(legacyCommands, [])
     assert.equal((await request(port, '/v1/me/player')).status, 204)
     assert.equal((await request(port, '/v1/me/player/pause', { method: 'PUT' })).status, 404)
     player = { videoId: 'abcdefghijk', title: 'Song', artist: 'Artist', durationMs: 240000, progressMs: 12345, playing: true, shuffle: false }
@@ -51,6 +56,9 @@ function request(port, path, options = {}) {
     for (const query of ['', '?position_ms=-1', '?position_ms=1.5', '?position_ms=999999', '?position_ms=Infinity']) {
       assert.equal((await request(port, `/v1/me/player/seek${query}`, { method: 'PUT' })).status, 400)
     }
+    rejectDispatch = true
+    assert.equal((await request(port, '/v1/me/player/next', { method: 'POST' })).status, 409)
+    rejectDispatch = false
     assert.equal((await request(port, '/v1/me/player/next', { method: 'PUT' })).status, 405)
     assert.equal((await request(port, '/v1/me/player/next?device_id=elsewhere', { method: 'POST' })).status, 404)
     assert.equal((await request(port, '/v1/me/player/volume', { method: 'PUT' })).status, 404)
@@ -59,6 +67,9 @@ function request(port, path, options = {}) {
     assert.equal((await request(port, '/v1/me/player', { headers: { 'sec-fetch-site': 'same-origin' } })).status, 403)
     assert.equal((await request(port, '/v1/me/player', { headers: { host: `evil.example:${port}` } })).status, 403)
     assert.equal(commands.length, 6, 'rejected requests do not control playback')
+    legacyEnabled = true
+    assert.equal((await request(port, '/next')).status, 200)
+    assert.deepEqual(legacyCommands, ['next'])
     player = { ...player, videoId: 'not a valid id' }
     assert.deepEqual(JSON.parse((await request(port, '/v1/me/player')).body).item.album.images, [])
   } finally {

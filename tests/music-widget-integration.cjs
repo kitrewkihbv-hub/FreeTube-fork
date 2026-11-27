@@ -13,13 +13,14 @@ const context = vm.createContext({
   showToast: () => {}, formatDurationAsTimestamp: String, Number, Math,
 })
 const methods = vm.runInContext(`({ ${watch.slice(start, end)} })`, context)
-const player = { resumePlayback: () => calls.push('play'), pause: () => calls.push('pause'), togglePlayback: () => calls.push('toggle'), toggleCaptions: () => true, setCurrentTime: n => calls.push(`seek:${n}`) }
+let time = 8
+const player = { getCurrentTime: () => time, resumePlayback: () => calls.push('play'), pause: () => calls.push('pause'), togglePlayback: () => calls.push('toggle'), toggleCaptions: () => true, setCurrentTime: n => calls.push(`seek:${n}`) }
 const playlist = { toggleShuffle: () => calls.push('shuffle') }
 const instance = {
   ...methods, widgetControlsActive: true, videoPlayerLoaded: true, isLoading: false, errorMessage: null,
   videoTitle: 'Song', channelName: 'Artist', videoId: 'abcdefghijk', videoLengthSeconds: 180, musicCurrentTime: 12, musicPlaying: true, musicShuffle: false, watchingPlaylist: true,
   $route: { query: { music: '1' } },
-  $refs: { player, watchVideoPlaylist: playlist },
+  $refs: { player, watchVideoPlaylist: playlist }, $router: { back: () => calls.push('back') },
   handleSkipToNext: () => calls.push('next'), handleSkipToPrev: () => calls.push('prev'), t: x => x,
 }
 instance.syncLocalPlayerState()
@@ -44,9 +45,18 @@ assert.equal(calls.length, 7, 'commands do nothing while the player is loading')
 instance.isLoading = false
 instance.$route.query.music = undefined
 instance.syncLocalPlayerState()
-assert.equal(states.at(-1), null, 'ordinary videos are not exposed to the widget')
+assert.equal(states.at(-1).title, 'Song', 'Spotify adapter sees an ordinary watch page')
 instance.handleLocalPlayerCommand('toggle')
-assert.equal(calls.length, 7, 'ordinary videos cannot be controlled by the widget')
+assert.equal(calls.length, 7, 'ordinary videos cannot be controlled by the legacy Music widget')
+instance.handleSpotifyPlayerCommand('pause')
+instance.handleSpotifyPlayerCommand('next')
+instance.handleSpotifyPlayerCommand({ type: 'seek', positionMs: 6000 })
+instance.handleSpotifyPlayerCommand('prev')
+time = 2
+instance.handleSpotifyPlayerCommand('prev')
+instance.watchingPlaylist = true
+instance.handleSpotifyPlayerCommand('prev')
+assert.deepEqual(calls.slice(-6), ['pause', 'next', 'seek:6', 'seek:0', 'back', 'prev'])
 instance.widgetControlsActive = false
 instance.syncLocalPlayerState()
 assert.equal(states.length, 5, 'a leaving view cannot republish stale state')

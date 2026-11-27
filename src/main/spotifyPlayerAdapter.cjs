@@ -1,5 +1,5 @@
 // A deliberately small local adapter, not Spotify, OAuth, or a Spotify account.
-// It exposes only the currently loaded MacTube Music player to local programs.
+// It exposes a currently loaded MacTube Watch or Music player to local programs.
 function createSpotifyPlayerAdapter({ getPlayback, onCommand }) {
   const json = (response, status, message) => response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify({ error: { status, message } }))
   return async function handleSpotifyPlayer(request, response, url) {
@@ -54,7 +54,7 @@ function createSpotifyPlayerAdapter({ getPlayback, onCommand }) {
     if (request.method !== route[0]) { json(response, 405, 'Method not allowed'); return true }
     const device = url.searchParams.get('device_id')
     if (device && device !== 'mactube-local') { json(response, 404, 'Device not found'); return true }
-    if (!playback?.title) { json(response, 404, 'No active MacTube Music player'); return true }
+    if (!playback?.title) { json(response, 404, 'No active MacTube player'); return true }
 
     // No arbitrary Spotify track, context or queue playback: only resume/pause
     // the current player. Limit request bodies and reject unsupported options.
@@ -82,7 +82,10 @@ function createSpotifyPlayerAdapter({ getPlayback, onCommand }) {
       }
       command = { type: 'seek', positionMs: Number(raw) }
     }
-    onCommand(command)
+    if (onCommand(command, playback) === false) {
+      json(response, 409, 'The active player changed; retry')
+      return true
+    }
     response.writeHead(204).end()
     return true
   }

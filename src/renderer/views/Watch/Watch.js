@@ -83,6 +83,7 @@ export default defineComponent({
   beforeRouteLeave: async function (to, from, next) {
     this.widgetControlsActive = false
     this.stopLocalWidgetControls?.()
+    this.stopSpotifyPlayerControls?.()
     this.stopDynamicIslandControls?.()
     if (process.env.IS_ELECTRON) window.ftElectron.updateLocalPlayerState(null)
     this.handleRouteChange()
@@ -118,6 +119,7 @@ export default defineComponent({
       musicCurrentTime: 0,
       musicShowDetails: false,
       stopLocalWidgetControls: null,
+      stopSpotifyPlayerControls: null,
       stopDynamicIslandControls: null,
       widgetControlsActive: false,
       isFamilyFriendly: false,
@@ -387,6 +389,7 @@ export default defineComponent({
     if (process.env.IS_ELECTRON) {
       this.widgetControlsActive = true
       this.stopLocalWidgetControls = window.ftElectron.onLocalPlayerCommand(this.handleLocalPlayerCommand)
+      this.stopSpotifyPlayerControls = window.ftElectron.onSpotifyPlayerCommand(this.handleSpotifyPlayerCommand)
       this.stopDynamicIslandControls = window.ftElectron.onDynamicIslandCommand(this.handleDynamicIslandCommand)
       this.syncLocalPlayerState()
     }
@@ -395,7 +398,7 @@ export default defineComponent({
   methods: {
     syncLocalPlayerState() {
       if (!process.env.IS_ELECTRON || !this.widgetControlsActive) return
-      const loaded = this.$route.query.music === '1' && this.videoPlayerLoaded && !this.isLoading && !this.errorMessage && this.videoTitle
+      const loaded = this.videoPlayerLoaded && !this.isLoading && !this.errorMessage && this.videoTitle
       window.ftElectron.updateLocalPlayerState(loaded
         ? {
             title: this.videoTitle,
@@ -410,6 +413,13 @@ export default defineComponent({
     },
     handleLocalPlayerCommand(command) {
       if (this.$route.query.music !== '1' || !this.videoPlayerLoaded || this.isLoading || this.errorMessage) return
+      if (command === 'toggle') { this.toggleMusicPlayback(); return }
+      if (command === 'shuffle') { this.toggleMusicShuffle(); return }
+      if (command === 'prev') { this.handleSkipToPrev(); return }
+      this.handleSpotifyPlayerCommand(command)
+    },
+    handleSpotifyPlayerCommand(command) {
+      if (!this.videoPlayerLoaded || this.isLoading || this.errorMessage || !this.$refs.player) return
       if (command?.type === 'seek' && Number.isSafeInteger(command.positionMs) && command.positionMs >= 0) {
         this.$refs.player?.setCurrentTime(command.positionMs / 1000)
         return
@@ -417,10 +427,12 @@ export default defineComponent({
       switch (command) {
         case 'play': this.$refs.player?.resumePlayback(); break
         case 'pause': this.$refs.player?.pause(); break
-        case 'toggle': this.toggleMusicPlayback(); break
         case 'next': this.handleSkipToNext(); break
-        case 'prev': this.handleSkipToPrev(); break
-        case 'shuffle': this.toggleMusicShuffle(); break
+        case 'prev':
+          if (this.$refs.player.getCurrentTime() > 4) this.$refs.player.setCurrentTime(0)
+          else if (this.watchingPlaylist) this.handleSkipToPrev()
+          else this.$router.back()
+          break
       }
     },
     handleDynamicIslandCommand(command) {

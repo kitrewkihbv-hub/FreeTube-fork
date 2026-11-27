@@ -3,8 +3,8 @@
 const http = require('node:http')
 const { createSpotifyPlayerAdapter } = require('./spotifyPlayerAdapter.cjs')
 
-function startLocalControlServer({ getStatus, getPlayback = getStatus, onCommand, port = 8765, logError = console.error }) {
-  const spotifyPlayer = createSpotifyPlayerAdapter({ getPlayback, onCommand })
+function startLocalControlServer({ getStatus, getPlayback = getStatus, onCommand, onSpotifyCommand = onCommand, isLegacyEnabled = () => true, port = 8765, logError = console.error }) {
+  const spotifyPlayer = createSpotifyPlayerAdapter({ getPlayback, onCommand: onSpotifyCommand })
   const commands = new Set(['/prev', '/next', '/toggle', '/shuffle'])
   const server = http.createServer(async (request, response) => {
     // The Spotify-style routes deliberately do not inherit legacy wildcard CORS.
@@ -23,6 +23,10 @@ function startLocalControlServer({ getStatus, getPlayback = getStatus, onCommand
         if (!response.headersSent) response.writeHead(500).end()
         else response.destroy()
       }
+      return
+    }
+    if (!isLegacyEnabled()) {
+      response.writeHead(404).end()
       return
     }
     response.setHeader('Access-Control-Allow-Origin', '*')

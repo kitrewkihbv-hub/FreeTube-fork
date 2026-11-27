@@ -1,4 +1,4 @@
-// Keep one loopback listener only while at least one app window is in Music.
+// Keep one loopback listener while at least one eligible app window needs it.
 function createMusicControlLifecycle(startServer) {
   let wanted = false
   let server = null
