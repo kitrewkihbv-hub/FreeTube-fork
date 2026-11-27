@@ -33,6 +33,7 @@ import { generatePoToken } from './poTokenGenerator'
 import { isFreeTubeUrl } from './utils'
 import { startLocalControlServer } from './localControlServer.cjs'
 import { createMusicControlLifecycle } from './musicControlLifecycle.cjs'
+import { createTitleStatusFile } from './titleStatusFile.cjs'
 import {
   cancelSignIn,
   getAccountTokens,
@@ -368,6 +369,19 @@ function runApp() {
   const isDebug = process.argv.includes('--debug')
 
   let mainWindow
+  // Übersicht reads this macOS title file; it is separate from the music HTTP API.
+  const titleStatusFile = process.platform === 'darwin' ? createTitleStatusFile() : null
+  let titleStatusShutdownStarted = false
+  app.on('before-quit', event => {
+    if (!titleStatusFile || titleStatusShutdownStarted) return
+    titleStatusShutdownStarted = true
+    event.preventDefault()
+    titleStatusFile.shutdown().finally(() => app.quit())
+  })
+  function selectMainWindow(window) {
+    mainWindow = window
+    if (window && !window.isDestroyed()) titleStatusFile?.update(window.getTitle())
+  }
   let startupUrl
   let tray = null
   let trayOnMinimize = false
@@ -897,7 +911,7 @@ function runApp() {
         }
       }
 
-      if (trayWindows.length === BrowserWindow.getAllWindows().length) { mainWindow = window }
+      if (trayWindows.length === BrowserWindow.getAllWindows().length) { selectMainWindow(window) }
     } else if (trayWindows.length > 0) {
       window.close()
     }
@@ -1205,7 +1219,7 @@ function runApp() {
             // A timer is needed because getFocusedWindow doesn't update until the minimize event ends
             setTimeout(() => {
               const newMainWindow = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows().find(window => window.isVisible())
-              if (newMainWindow) { mainWindow = newMainWindow }
+              if (newMainWindow) { selectMainWindow(newMainWindow) }
             }, 100)
           }
         }
@@ -1220,8 +1234,12 @@ function runApp() {
       })
     }
 
-    if (replaceMainWindow) {
-      mainWindow = newWindow
+    newWindow.on('page-title-updated', (_, title) => {
+      if (newWindow === mainWindow) titleStatusFile?.update(title)
+    })
+
+    if (replaceMainWindow || !mainWindow) {
+      selectMainWindow(newWindow)
     }
 
     if (savedMaximized) {
@@ -1321,10 +1339,14 @@ function runApp() {
 
     newWindow.once('closed', () => {
       const allWindows = BrowserWindow.getAllWindows()
-      if (allWindows.length !== 0 && newWindow === mainWindow) {
-        // Replace mainWindow to avoid accessing `mainWindow.webContents`
-        // Which raises "Object has been destroyed" error
-        mainWindow = allWindows[0]
+      if (newWindow === mainWindow) {
+        // Replace a closed main window if another is still open; otherwise remove
+        // our status file until the user opens a window again.
+        if (allWindows.length !== 0) selectMainWindow(allWindows[0])
+        else {
+          mainWindow = null
+          titleStatusFile?.cleanup()
+        }
       }
 
       stopPowerSaveBlockerForWindow(newWindow)

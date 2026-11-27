@@ -1,0 +1,52 @@
+const assert = require('node:assert/strict')
+const fs = require('node:fs/promises')
+const os = require('node:os')
+const path = require('node:path')
+const { createTitleStatusFile, formatWindowTitle } = require('../src/main/titleStatusFile.cjs')
+
+;(async () => {
+  assert.equal(formatWindowTitle(''), 'IDLE|MACTUBE READY|STANDBY')
+  assert.equal(formatWindowTitle('MacTube'), 'IDLE|MACTUBE READY|STANDBY')
+  assert.equal(formatWindowTitle('FREETUBE'), 'IDLE|MACTUBE READY|STANDBY')
+  assert.equal(formatWindowTitle('My Song - MacTube'), 'PLAYING|My Song|MACTUBE')
+  assert.equal(formatWindowTitle('Title - FreeTube'), 'PLAYING|Title|MACTUBE')
+  assert.equal(formatWindowTitle('A|B\nC - MacTube'), 'PLAYING|A B C|MACTUBE')
+  // As in the requested snippet, this is a window-title protocol, not a real play-state indicator.
+  assert.equal(formatWindowTitle('Subscriptions - MacTube'), 'PLAYING|Subscriptions|MACTUBE')
+
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mactube-title-test-'))
+  const filename = path.join(dir, 'mactube_np.txt')
+  const target = path.join(dir, 'unrelated.txt')
+  try {
+    await fs.writeFile(target, 'do not overwrite')
+    await fs.symlink(target, filename)
+    const errors = []
+    const writer = createTitleStatusFile({ filename, logError: message => errors.push(message) })
+    await writer.update('MacTube')
+    assert.equal(await fs.readFile(filename, 'utf8'), 'IDLE|MACTUBE READY|STANDBY')
+    assert.equal(await fs.readFile(target, 'utf8'), 'do not overwrite', 'the public path symlink is not followed')
+    assert.equal((await fs.stat(filename)).mode & 0o777, 0o600)
+    await Promise.all([writer.update('First - MacTube'), writer.update('Second - MacTube')])
+    assert.equal(await fs.readFile(filename, 'utf8'), 'PLAYING|Second|MACTUBE', 'writes stay ordered')
+    await writer.cleanup()
+    await assert.rejects(fs.stat(filename), { code: 'ENOENT' })
+    await writer.update('Reopened - MacTube')
+    assert.equal(await fs.readFile(filename, 'utf8'), 'PLAYING|Reopened|MACTUBE')
+    // If another program replaces the file, cleanup must not remove its file.
+    await fs.rename(filename, `${filename}.old`)
+    await fs.writeFile(filename, 'other program')
+    await writer.cleanup()
+    assert.equal(await fs.readFile(filename, 'utf8'), 'other program')
+    await writer.update('Final - MacTube')
+    await writer.shutdown()
+    await writer.update('Too late - MacTube')
+    await assert.rejects(fs.stat(filename), { code: 'ENOENT' })
+    assert.deepEqual(errors, [])
+    const bad = createTitleStatusFile({ filename: path.join(dir, 'no-such-dir', 'status'), logError: message => errors.push(message) })
+    await bad.update('Song')
+    assert.equal(errors.length, 1, 'write failures are logged rather than thrown')
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+  console.log('Übersicht title status file tests passed')
+})().catch(error => { console.error(error); process.exitCode = 1 })
