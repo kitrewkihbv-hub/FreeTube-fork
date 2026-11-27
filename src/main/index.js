@@ -33,9 +33,7 @@ import { generatePoToken } from './poTokenGenerator'
 import { isFreeTubeUrl } from './utils'
 import { startLocalControlServer } from './localControlServer.cjs'
 import { createMusicControlLifecycle } from './musicControlLifecycle.cjs'
-import { createLocalPlayerRegistry } from './localPlayerRegistry.cjs'
 import { createTitleStatusFile } from './titleStatusFile.cjs'
-import { createDynamicIslandCommands } from './dynamicIslandCommands.cjs'
 import { configureInnertubeHeaders } from './innertubeRequestHeaders.cjs'
 import {
   cancelSignIn,
@@ -109,44 +107,66 @@ function runApp() {
 
   const ROOT_APP_URL = process.env.NODE_ENV === 'development' ? 'http://localhost:9080' : 'app://bundle/index.html'
 
-  // The legacy API stays Music-only. The separate Spotify-shaped adapter can
-  // target any loaded Watch player and chooses playing, then most recent.
+  // Track playback per window. Prefer a currently playing window, then the most
+  // recently active loaded player; a closed/navigated window cannot stay stale.
+  const localPlayers = new Map()
+  const musicWindows = new Set()
+  const trackedPlayerWindows = new WeakSet()
+  let playerSequence = 0
   const emptyPlayerState = { title: '', artist: '', playing: false, shuffle: false }
+  function activeLocalPlayer() {
+    return [...localPlayers.values()]
+      .filter(entry => musicWindows.has(entry.sender.id) && !entry.sender.isDestroyed())
+      .sort((a, b) => Number(b.state.playing) - Number(a.state.playing) || b.sequence - a.sequence)[0]
+  }
   const musicControl = createMusicControlLifecycle(() => startLocalControlServer({
-    isLegacyEnabled: () => playerRegistry.hasMusic(),
-    getStatus: () => {
-      const state = playerRegistry.activePlayer(true)?.state ?? emptyPlayerState
-      return { title: state.title, artist: state.artist, playing: state.playing, shuffle: state.shuffle }
-    },
-    getPlayback: () => {
-      const entry = playerRegistry.activePlayer()
-      return entry ? { ...entry.state, sourceId: entry.sender.id } : null
-    },
+    getStatus: () => activeLocalPlayer()?.state ?? emptyPlayerState,
     onCommand: command => {
-      const entry = playerRegistry.activePlayer(true)
+      const entry = activeLocalPlayer()
       if (entry && !entry.sender.isDestroyed()) entry.sender.send(IpcChannels.LOCAL_PLAYER_COMMAND, command)
     },
-    onSpotifyCommand: (command, playback) => {
-      const entry = playerRegistry.activePlayer()
-      if (!entry || entry.sender.isDestroyed() || entry.sender.id !== playback.sourceId || entry.state.videoId !== playback.videoId) return false
-      entry.sender.send(IpcChannels.SPOTIFY_PLAYER_COMMAND, command)
-      return true
-    },
   }))
-  const playerRegistry = createLocalPlayerRegistry({ setServerActive: value => musicControl.setActive(value) })
+  function forgetMusicWindow(sender) {
+    localPlayers.delete(sender.id)
+    musicWindows.delete(sender.id)
+    musicControl.setActive(musicWindows.size > 0)
+  }
   app.on('will-quit', () => musicControl.setActive(false))
   ipcMain.on(IpcChannels.LOCAL_MUSIC_ACTIVE, (event, active) => {
     if (!event.senderFrame || !isFreeTubeUrl(event.senderFrame.url) || event.senderFrame !== event.sender.mainFrame) return
-    playerRegistry.setMusic(event.sender, active)
+    const sender = event.sender
+    if (!trackedPlayerWindows.has(sender)) {
+      trackedPlayerWindows.add(sender)
+      sender.once('destroyed', () => forgetMusicWindow(sender))
+      sender.on('render-process-gone', () => forgetMusicWindow(sender))
+      sender.on('did-start-navigation', (_, __, isInPlace, isMainFrame) => {
+        if (isMainFrame && !isInPlace) forgetMusicWindow(sender)
+      })
+    }
+    if (active === true) {
+      musicWindows.add(sender.id)
+      musicControl.setActive(true)
+    } else {
+      forgetMusicWindow(sender)
+    }
   })
   ipcMain.on(IpcChannels.LOCAL_PLAYER_STATE, (event, value) => {
     if (!event.senderFrame || !isFreeTubeUrl(event.senderFrame.url) || event.senderFrame !== event.sender.mainFrame) return
-    const previous = playerRegistry.getPlayer(event.sender.id)?.state.playing
-    playerRegistry.setPlayer(event.sender, value)
-    const current = playerRegistry.getPlayer(event.sender.id)?.state.playing
-    if (previous !== current && mainWindow && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents) {
-      publishMainWindowTitle(mainWindow)
+    const sender = event.sender
+    if (!musicWindows.has(sender.id) || !value || typeof value.title !== 'string' || !value.title) {
+      localPlayers.delete(sender.id)
+      return
     }
+    localPlayers.set(sender.id, {
+      sender,
+      sequence: ++playerSequence,
+      state: {
+        title: value.title.slice(0, 500),
+        artist: typeof value.artist === 'string' ? value.artist.slice(0, 500) : '',
+        playing: value.playing === true,
+        shuffle: value.shuffle === true,
+      }
+    })
   })
 
   let backendPreference = 'local'
@@ -354,18 +374,6 @@ function runApp() {
   let mainWindow
   // Übersicht reads this macOS title file; it is separate from the music HTTP API.
   const titleStatusFile = process.platform === 'darwin' ? createTitleStatusFile() : null
-  // One listener for the same main window whose title is published to the widget.
-  const dynamicIslandCommands = process.platform === 'darwin'
-    ? createDynamicIslandCommands({
-        canPoll: () => Boolean(mainWindow && !mainWindow.isDestroyed() && isFreeTubeUrl(mainWindow.webContents.getURL())),
-        onCommand: command => {
-          if (mainWindow && !mainWindow.isDestroyed() && isFreeTubeUrl(mainWindow.webContents.getURL())) {
-            mainWindow.webContents.send(IpcChannels.DYNAMIC_ISLAND_COMMAND, command)
-          }
-        }
-      })
-    : null
-  app.on('will-quit', () => dynamicIslandCommands?.stop())
   let titleStatusShutdownStarted = false
   app.on('before-quit', event => {
     if (!titleStatusFile || titleStatusShutdownStarted) return
@@ -373,14 +381,9 @@ function runApp() {
     event.preventDefault()
     titleStatusFile.shutdown().finally(() => app.quit())
   })
-  function publishMainWindowTitle(window, title = window.getTitle()) {
-    if (window && !window.isDestroyed()) {
-      titleStatusFile?.update(title, window.webContents.getURL(), playerRegistry.getPlayer(window.webContents.id)?.state.playing)
-    }
-  }
   function selectMainWindow(window) {
     mainWindow = window
-    if (window && !window.isDestroyed()) publishMainWindowTitle(window)
+    if (window && !window.isDestroyed()) titleStatusFile?.update(window.getTitle(), window.webContents.getURL())
   }
   let startupUrl
   let tray = null
@@ -1228,12 +1231,12 @@ function runApp() {
     }
 
     newWindow.on('page-title-updated', (_, title) => {
-      if (newWindow === mainWindow) publishMainWindowTitle(newWindow, title)
+      if (newWindow === mainWindow) titleStatusFile?.update(title, newWindow.webContents.getURL())
     })
 
     newWindow.webContents.on('did-navigate-in-page', () => {
       if (newWindow === mainWindow && !newWindow.isDestroyed()) {
-        publishMainWindowTitle(newWindow)
+        titleStatusFile?.update(newWindow.getTitle(), newWindow.webContents.getURL())
       }
     })
 

@@ -83,8 +83,6 @@ export default defineComponent({
   beforeRouteLeave: async function (to, from, next) {
     this.widgetControlsActive = false
     this.stopLocalWidgetControls?.()
-    this.stopSpotifyPlayerControls?.()
-    this.stopDynamicIslandControls?.()
     if (process.env.IS_ELECTRON) window.ftElectron.updateLocalPlayerState(null)
     this.handleRouteChange()
     window.removeEventListener('beforeunload', this.handleWatchProgressAutoSave)
@@ -119,8 +117,6 @@ export default defineComponent({
       musicCurrentTime: 0,
       musicShowDetails: false,
       stopLocalWidgetControls: null,
-      stopSpotifyPlayerControls: null,
-      stopDynamicIslandControls: null,
       widgetControlsActive: false,
       isFamilyFriendly: false,
       isLive: false,
@@ -200,10 +196,6 @@ export default defineComponent({
 
       isReloadingView: false,
       selectedPlayer: 'web',
-      sabrRetryVideoId: null,
-      sabrReloadCount: 0,
-      sabrWebRetried: false,
-      sabrReloadPending: false,
     }
   },
   computed: {
@@ -362,10 +354,6 @@ export default defineComponent({
     isLoading() { this.syncLocalPlayerState() },
     errorMessage() { this.syncLocalPlayerState() },
     musicPlaying() { this.syncLocalPlayerState() },
-    videoLengthSeconds() { this.syncLocalPlayerState() },
-    musicCurrentTime(value, previous) {
-      if (Math.floor(value) !== Math.floor(previous)) this.syncLocalPlayerState()
-    },
     musicShuffle() { this.syncLocalPlayerState() },
     watchingPlaylist(value) {
       if (!value) this.musicShuffle = false
@@ -393,8 +381,6 @@ export default defineComponent({
     if (process.env.IS_ELECTRON) {
       this.widgetControlsActive = true
       this.stopLocalWidgetControls = window.ftElectron.onLocalPlayerCommand(this.handleLocalPlayerCommand)
-      this.stopSpotifyPlayerControls = window.ftElectron.onSpotifyPlayerCommand(this.handleSpotifyPlayerCommand)
-      this.stopDynamicIslandControls = window.ftElectron.onDynamicIslandCommand(this.handleDynamicIslandCommand)
       this.syncLocalPlayerState()
     }
     this.onMountedDependOnLocalStateLoading()
@@ -402,53 +388,23 @@ export default defineComponent({
   methods: {
     syncLocalPlayerState() {
       if (!process.env.IS_ELECTRON || !this.widgetControlsActive) return
-      const loaded = this.videoPlayerLoaded && !this.isLoading && !this.errorMessage && this.videoTitle
+      const loaded = this.$route.query.music === '1' && this.videoPlayerLoaded && !this.isLoading && !this.errorMessage && this.videoTitle
       window.ftElectron.updateLocalPlayerState(loaded
         ? {
             title: this.videoTitle,
             artist: this.channelName,
             playing: this.musicPlaying,
             shuffle: this.watchingPlaylist && this.musicShuffle,
-            videoId: this.videoId,
-            durationMs: Math.round((Number(this.videoLengthSeconds) || 0) * 1000),
-            progressMs: Math.round((Number(this.musicCurrentTime) || 0) * 1000),
           }
         : null)
     },
     handleLocalPlayerCommand(command) {
       if (this.$route.query.music !== '1' || !this.videoPlayerLoaded || this.isLoading || this.errorMessage) return
-      if (command === 'toggle') { this.toggleMusicPlayback(); return }
-      if (command === 'shuffle') { this.toggleMusicShuffle(); return }
-      if (command === 'prev') { this.handleSkipToPrev(); return }
-      this.handleSpotifyPlayerCommand(command)
-    },
-    handleSpotifyPlayerCommand(command) {
-      if (!this.videoPlayerLoaded || this.isLoading || this.errorMessage || !this.$refs.player) return
-      if (command?.type === 'seek' && Number.isSafeInteger(command.positionMs) && command.positionMs >= 0) {
-        this.$refs.player?.setCurrentTime(command.positionMs / 1000)
-        return
-      }
       switch (command) {
-        case 'play': this.$refs.player?.resumePlayback(); break
-        case 'pause': this.$refs.player?.pause(); break
+        case 'toggle': this.toggleMusicPlayback(); break
         case 'next': this.handleSkipToNext(); break
-        case 'prev':
-          if (this.$refs.player.getCurrentTime() > 4) this.$refs.player.setCurrentTime(0)
-          else if (this.watchingPlaylist) this.handleSkipToPrev()
-          else this.$router.back()
-          break
-      }
-    },
-    handleDynamicIslandCommand(command) {
-      if (!this.videoPlayerLoaded || this.isLoading || this.errorMessage || !this.$refs.player) return
-      switch (command) {
-        case 'PLAY': this.$refs.player.togglePlayback(); break
-        case 'NEXT': this.handleSkipToNext(); break
-        case 'PREV':
-          if (this.$refs.player.getCurrentTime() > 4) this.$refs.player.setCurrentTime(0)
-          else if (this.watchingPlaylist) this.handleSkipToPrev()
-          else this.$router.back()
-          break
+        case 'prev': this.handleSkipToPrev(); break
+        case 'shuffle': this.toggleMusicShuffle(); break
       }
     },
     toggleMusicPlayback() { this.$refs.player?.togglePlayback() },
@@ -2123,42 +2079,14 @@ export default defineComponent({
     },
 
     onManualReloadRequested: throttle(async function () {
-      this.sabrRetryVideoId = null
       await this.saveWatchProgressForReload()
       await this.reloadView()
     }, 1000),
 
     async onSabrReloadRequested() {
-      if (this.isReloadingView || this.sabrReloadPending) return
-      const videoId = this.videoId
-      if (this.sabrRetryVideoId !== videoId) {
-        this.sabrRetryVideoId = videoId
-        this.sabrReloadCount = 0
-        this.sabrWebRetried = false
-      }
-
-      // Never restart the preferred-client chain from zero after a SABR reload.
-      // Advance to the next client; Web gets only one fresh retry. This bounds
-      // both YouTube-requested reloads and our own repeated-backoff recovery.
-      if (this.sabrReloadCount >= 4 || (this.selectedPlayer === 'web' && this.sabrWebRetried)) {
-        this.errorMessage = 'The video stream repeatedly requested a reload. Please reopen the video or try another backend.'
-        return
-      }
-      const nextStage = this.selectedPlayer === 'authenticated-embedded' ? 1 : this.selectedPlayer === 'embedded' ? 2 : 3
-      if (this.selectedPlayer === 'web') this.sabrWebRetried = true
-      this.sabrReloadCount++
-      this.sabrReloadPending = true
-      showToast('Video stream requested a reload; trying another playback source.')
-      try {
-        await this.saveWatchProgressForReload()
-        if (this.videoId === videoId && this.$route.params.id === videoId) await this.reloadView(nextStage)
-      } catch {
-        if (this.videoId === videoId && this.$route.params.id === videoId) {
-          this.errorMessage = 'Could not reload the video stream. Please reopen the video or try another backend.'
-        }
-      } finally {
-        this.sabrReloadPending = false
-      }
+      showToast('Reloading player according to SABR request')
+      await this.saveWatchProgressForReload()
+      await this.reloadView()
     },
 
     ...mapActions([

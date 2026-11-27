@@ -14,27 +14,13 @@ let currentUpdateSearchInputTextListener
 export default {
   /** @param {boolean} active */
   setLocalMusicActive: (active) => ipcRenderer.send(IpcChannels.LOCAL_MUSIC_ACTIVE, active),
-  /** @param {{title: string, artist: string, playing: boolean, shuffle: boolean, videoId: string, durationMs: number, progressMs: number}|null} state */
+  /** @param {{title: string, artist: string, playing: boolean, shuffle: boolean}|null} state */
   updateLocalPlayerState: (state) => ipcRenderer.send(IpcChannels.LOCAL_PLAYER_STATE, state),
-  /** @param {(command: string | {type: string, positionMs: number}) => void} callback */
+  /** @param {(command: string) => void} callback */
   onLocalPlayerCommand: (callback) => {
     const listener = (_, command) => callback(command)
     ipcRenderer.on(IpcChannels.LOCAL_PLAYER_COMMAND, listener)
     return () => ipcRenderer.removeListener(IpcChannels.LOCAL_PLAYER_COMMAND, listener)
-  },
-
-  /** @param {(command: string | {type: string, positionMs: number}) => void} callback */
-  onSpotifyPlayerCommand: (callback) => {
-    const listener = (_, command) => callback(command)
-    ipcRenderer.on(IpcChannels.SPOTIFY_PLAYER_COMMAND, listener)
-    return () => ipcRenderer.removeListener(IpcChannels.SPOTIFY_PLAYER_COMMAND, listener)
-  },
-
-  /** @param {(command: string) => void} callback */
-  onDynamicIslandCommand: (callback) => {
-    const listener = (_, command) => callback(command)
-    ipcRenderer.on(IpcChannels.DYNAMIC_ISLAND_COMMAND, listener)
-    return () => ipcRenderer.removeListener(IpcChannels.DYNAMIC_ISLAND_COMMAND, listener)
   },
 
   /**

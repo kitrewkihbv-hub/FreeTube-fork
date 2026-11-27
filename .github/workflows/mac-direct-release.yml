@@ -75,19 +75,13 @@ jobs:
         run: |
           set -euo pipefail
           cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
-          The supplied Übersicht Dynamic Island widget is available in integrations/ubersicht/dynamic-island.jsx. It controls MacTube directly through /tmp/mactube_cmd.txt and keeps Spotify AppleScript for Spotify. The MacTube title file reports actual playing or paused state when a player is loaded. Widget integration and playback on a real Mac have not been verified.
+          This release restores the app code from mac-build-30, the version previously reported as working. Changes after that build, including the experimental Spotify-style API, Dynamic Island command-file control, and SABR reload-loop limit, are not included. The underlying playback issue and actual macOS behavior remain unverified.
 
-          SABR player reloads are now bounded and advance through remaining playback fallbacks instead of restarting the chain indefinitely. If all attempts fail, an error is shown. This does not guarantee YouTube playback or establish why a stream was rejected.
-
-          Experimental local Spotify-style player API: while a video is loaded or Music is open, native widgets can use http://127.0.0.1:8765/v1/me/player for playback status and basic playback controls. This is a limited local adapter, not Spotify or Spotify OAuth; Spotify-only track selection, volume and accounts are not supported, and hard-coded Spotify widgets will not automatically work. It rejects browser-origin requests, but local programs can read video titles and control playback without authentication. Previous restarts a video after four seconds; otherwise it uses the playlist or navigation history. Next requires a playlist or an available recommendation. Never send real Spotify credentials. The older widget API remains unauthenticated with wildcard CORS. Real widgets and Mac playback have not been tested.
-
-          On macOS, the Dynamic Island command file /tmp/mactube_cmd.txt accepts PLAY (toggle), NEXT and PREV for the main window. Any local program running as your user can write commands; the single-slot file can lose rapid writes. NEXT needs a playlist or available recommendations. PREV restarts after four seconds, otherwise uses the playlist or navigates back. Live widget integration has not been tested.
-
-          The macOS Übersicht title file at /tmp/mactube_np.txt now has a fourth thumbnail URL field and is updated on in-page navigation. For a loaded player, PLAYING or PAUSED reflects player state; without one, PLAYING still only means a nonempty page title. Page titles can be recorded outside Music. Opening the thumbnail URL contacts YouTube. The file is removed on window close or quit when possible.
+          The macOS Übersicht title file at /tmp/mactube_np.txt now has a fourth thumbnail URL field and is updated on in-page navigation. PLAYING means the window has a nonempty page title, not necessarily that media is playing. Page titles can be recorded outside Music. Opening the thumbnail URL contacts YouTube. The file is removed on window close or quit when possible.
 
           Account OAuth now normalizes saved expiration data, refreshes before expiry and retries a 401 once, with bounded account fallback attempts. A persistent 401 can still have other causes, and real-account playback and macOS behavior have not been verified.
 
-          Music now has its own dark music-focused interface and searches YouTube Music for songs and music videos. Its legacy 127.0.0.1:8765 desktop-widget endpoints are available only while a Music window is active; the local server also runs for the Spotify-style adapter while ordinary videos are loaded. While active the API is unauthenticated and allows all web origins: local programs and websites that can reach local-network services may read what is playing or control playback. Previous and shuffle require a playlist. Captions depend on the video and are not guaranteed lyrics. Music search, playback, and widget integration have not been tested live on a Mac.
+          Music now has its own dark music-focused interface and searches YouTube Music for songs and music videos. Its 127.0.0.1:8765 desktop-widget API starts only while a Music window is active and stops after the last Music window leaves. While active the API is unauthenticated and allows all web origins: local programs and websites that can reach local-network services may read what is playing or control playback. Previous and shuffle require a playlist. Captions depend on the video and are not guaranteed lyrics. Music search, playback, and widget integration have not been tested live on a Mac.
 
           Experimental playback first tries an authenticated TV_EMBEDDED player with a Smart TV user agent, matching Web challenge visitor and proof token. It then falls back to anonymous WEB_EMBEDDED, ANDROID_VR and the existing Web path. Authenticated player requests disclose the video ID to YouTube even if Remember Watch History is disabled. YouTube may reject this client, OAuth pairing, embed identity or token; real playback and macOS behavior have not been verified.
 
@@ -97,7 +91,7 @@ jobs:
 
           Download arm64 for Apple Silicon, or the file without arm64 for Intel. MacTube shares the existing FreeTube data directory, so back up your data before upgrading.
           NOTES
-          gh release create mac-build-35 assets/MacTube-0.26.0.dmg assets/MacTube-0.26.0-arm64.dmg assets/MacTube-0.26.0-mac.zip assets/MacTube-0.26.0-arm64-mac.zip --draft --target "$GITHUB_SHA" --title 'MacTube (mac-build-35)' --notes-file "$RUNNER_TEMP/release-notes.md"
+          gh release create mac-build-36 assets/MacTube-0.26.0.dmg assets/MacTube-0.26.0-arm64.dmg assets/MacTube-0.26.0-mac.zip assets/MacTube-0.26.0-arm64-mac.zip --draft --target "$GITHUB_SHA" --title 'MacTube (mac-build-36)' --notes-file "$RUNNER_TEMP/release-notes.md"
 
   scan-and-publish:
     needs: mac-release
@@ -117,7 +111,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p assets
-          gh release download mac-build-35 --pattern '*.zip' --dir assets
+          gh release download mac-build-36 --pattern '*.zip' --dir assets
           test -f assets/MacTube-0.26.0-mac.zip
           test -f assets/MacTube-0.26.0-arm64-mac.zip
       - name: Install ClamAV and update signatures
@@ -145,4 +139,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-        run: gh release edit mac-build-35 --draft=false
+        run: gh release edit mac-build-36 --draft=false
