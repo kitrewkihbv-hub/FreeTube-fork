@@ -195,7 +195,7 @@ export default defineComponent({
       currentPlaybackRate: null,
 
       isReloadingView: false,
-      usedPreferredPlayer: false,
+      selectedPlayer: 'web',
     }
   },
   computed: {
@@ -417,7 +417,7 @@ export default defineComponent({
       if (Number.isFinite(seconds)) this.$refs.player?.setCurrentTime(seconds)
     },
     musicTime(seconds) { return formatDurationAsTimestamp(Math.max(0, Math.floor(seconds || 0))) },
-    async reloadView(preferWebFallback = false) {
+    async reloadView(playerFallbackStage = 0) {
       if (this.isReloadingView) { return }
 
       try {
@@ -443,7 +443,7 @@ export default defineComponent({
 
         switch (this.backendPreference) {
           case 'local':
-            await this.getVideoInformationLocal(preferWebFallback)
+            await this.getVideoInformationLocal(playerFallbackStage)
             break
           case 'invidious':
             this.getVideoInformationInvidious()
@@ -458,7 +458,7 @@ export default defineComponent({
       this.accountWatchTracker = null
       this.musicPlaying = false
       this.musicCurrentTime = 0
-      this.usedPreferredPlayer = false
+      this.selectedPlayer = 'web'
       this.isLoading = true
       this.isFamilyFriendly = false
       this.isLive = false
@@ -570,16 +570,16 @@ export default defineComponent({
       }
     },
 
-    getVideoInformationLocal: async function (preferWebFallback = false) {
+    getVideoInformationLocal: async function (playerFallbackStage = 0) {
       if (this.firstLoad) {
         this.isLoading = true
       }
 
       try {
-        const videoInfo = await getLocalVideoInfo(this.videoId, { skipPreferredPlayer: preferWebFallback })
+        const videoInfo = await getLocalVideoInfo(this.videoId, { playerFallbackStage })
         const { info: result, poToken, clientInfo, adEndTimeUnixMs, contentDisclosures, watchTracker } = videoInfo
         this.accountWatchTracker = watchTracker ?? null
-        this.usedPreferredPlayer = videoInfo.usedPreferredPlayer === true
+        this.selectedPlayer = videoInfo.selectedPlayer ?? 'web'
         this.contentDisclosures = contentDisclosures || null
 
         const playabilityStatus = result.playability_status
@@ -1670,11 +1670,12 @@ export default defineComponent({
           case 403:
             this.handleWatchProgressAutoSaveWhenProgressEnabled()
 
-            // A playable embedded response can still fail at the media server.
-            // Retry the existing Web path once before showing an error.
-            if (this.usedPreferredPlayer && !this.videoPlayerLoaded && !this.isReloadingView) {
-              this.usedPreferredPlayer = false
-              this.reloadView(true).catch(() => { this.errorMessage = '[BAD_HTTP_STATUS: 403] Playback request was rejected.' })
+            // A playable response may fail at the media server. Try the next
+            // client once: embedded → Android VR → existing Web fallback.
+            if (this.selectedPlayer !== 'web' && !this.videoPlayerLoaded && !this.isReloadingView) {
+              const nextStage = this.selectedPlayer === 'embedded' ? 1 : 2
+              this.selectedPlayer = 'web'
+              this.reloadView(nextStage).catch(() => { this.errorMessage = '[BAD_HTTP_STATUS: 403] Playback request was rejected.' })
               return
             }
 

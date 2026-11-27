@@ -2287,12 +2287,43 @@ function createEmbeddedVideoSession(webSession, poToken) {
   context.client.clientName = Constants.CLIENTS.WEB_EMBEDDED.NAME
   context.client.clientVersion = Constants.CLIENTS.WEB_EMBEDDED.VERSION
   context.client.clientScreen = 'EMBED'
-  context.thirdParty = { embedUrl: Constants.URLS.YT_BASE }
+  context.thirdParty = { embedUrl: `${Constants.URLS.YT_BASE}/` }
   return new Session(
     context, webSession.api_key, webSession.api_version, webSession.account_index,
     webSession.config_data, webSession.player, undefined, webSession.http.fetch_function,
     undefined, poToken
   )
+}
+
+/**
+ * Build an anonymous Android VR session with the same Web challenge visitor.
+ * The Web-minted token's compatibility with this client is not guaranteed.
+ * @param {string} visitorData
+ * @param {string} poToken
+ * @param {(input, init) => Promise<Response>} fetchFunc
+ * @returns {Promise<import('youtubei.js').Session>}
+ */
+async function createAndroidVrVideoSession(visitorData, poToken, fetchFunc) {
+  const vr = await createInnertube({
+    clientType: ClientType.ANDROID_VR,
+    userAgent: Constants.CLIENTS.ANDROID_VR.USER_AGENT,
+    fetchFunc
+  })
+  Object.assign(vr.session.context.client, {
+    visitorData,
+    clientName: Constants.CLIENTS.ANDROID_VR.NAME,
+    clientVersion: Constants.CLIENTS.ANDROID_VR.VERSION,
+    androidSdkVersion: Constants.CLIENTS.ANDROID_VR.SDK_VERSION,
+    osName: 'Android',
+    osVersion: '12L',
+    platform: 'MOBILE',
+    userAgent: Constants.CLIENTS.ANDROID_VR.USER_AGENT,
+    deviceMake: Constants.CLIENTS.ANDROID_VR.DEVICE_MAKE,
+    deviceModel: Constants.CLIENTS.ANDROID_VR.DEVICE_MODEL,
+    clientFormFactor: 'SMALL_FORM_FACTOR'
+  })
+  vr.session.po_token = poToken
+  return vr.session
 }
 
 /**
@@ -2312,7 +2343,7 @@ function createWatchNextRequestBody(videoId) {
 
 /**
  * @param {string} id
- * @param {{ skipPreferredPlayer?: boolean }} [options]
+ * @param {{ playerFallbackStage?: number }} [options]
  * @returns {Promise<{
  *   info: import('youtubei.js').YT.VideoInfo,
  *   poToken: string | undefined,
@@ -2325,7 +2356,7 @@ function createWatchNextRequestBody(videoId) {
  *   adEndTimeUnixMs: number
  * }>}
  */
-export async function getLocalVideoInfo(id, { skipPreferredPlayer = false } = {}) {
+export async function getLocalVideoInfo(id, { playerFallbackStage = 0 } = {}) {
   let responseTime
   let totalAdTimeMilliseconds = 0
 
@@ -2397,16 +2428,16 @@ export async function getLocalVideoInfo(id, { skipPreferredPlayer = false } = {}
   let playerResponse
   let nextResponse
   let context = htmlExtracts.session.context
-  let usedPreferredPlayer = false
+  let selectedPlayer = 'web'
 
   // The embedded session shares only the challenge's Web visitor and proof,
   // never the signed-in TV OAuth manager. YouTube can still reject this token.
-  if (!skipPreferredPlayer && process.env.IS_ELECTRON) {
+  if (playerFallbackStage < 1 && process.env.IS_ELECTRON) {
     try {
       let streamSession = createEmbeddedVideoSession(htmlExtracts.session, contentPoToken)
       if (streamSession) {
         let candidate = await streamSession.actions.execute('/player',
-          createPlayerRequestBody(id, player.signature_timestamp, streamSession.po_token, 'WEB_EMBEDDED'))
+          createPlayerRequestBody(id, player.signature_timestamp, streamSession.po_token))
         const status = candidate?.data?.playabilityStatus?.status
         if (status === 'LOGIN_REQUIRED' || status === 'UNPLAYABLE') {
           try {
@@ -2425,7 +2456,7 @@ export async function getLocalVideoInfo(id, { skipPreferredPlayer = false } = {}
             const retrySession = createEmbeddedVideoSession(retryWebSession, retryToken)
             if (retrySession) {
               candidate = await retrySession.actions.execute('/player',
-                createPlayerRequestBody(id, player.signature_timestamp, retrySession.po_token, 'WEB_EMBEDDED'))
+                createPlayerRequestBody(id, player.signature_timestamp, retrySession.po_token))
               streamSession = retrySession
             }
           } catch {
@@ -2439,7 +2470,7 @@ export async function getLocalVideoInfo(id, { skipPreferredPlayer = false } = {}
           (streams?.formats?.length || streams?.adaptiveFormats?.length || streams?.hlsManifestUrl || streams?.dashManifestUrl || streams?.serverAbrStreamingUrl)) {
           playerResponse = candidate
           context = streamSession.context
-          usedPreferredPlayer = true
+          selectedPlayer = 'embedded'
           contentPoToken = streamSession.po_token
           player.po_token = contentPoToken
           totalAdTimeMilliseconds = extractTotalAdTimeMilliseconds(data)
@@ -2451,7 +2482,32 @@ export async function getLocalVideoInfo(id, { skipPreferredPlayer = false } = {}
     }
   }
 
-  if (usedPreferredPlayer) {
+  // Embedded identity errors (including ERROR/152), missing streams and
+  // network failures all proceed to one anonymous Android VR attempt.
+  if (selectedPlayer === 'web' && playerFallbackStage < 2 && process.env.IS_ELECTRON &&
+    htmlExtracts.session.context.client.visitorData && contentPoToken) {
+    try {
+      const vrSession = await createAndroidVrVideoSession(htmlExtracts.session.context.client.visitorData, contentPoToken, fetchFunc)
+      const candidate = await vrSession.actions.execute('/player',
+        createPlayerRequestBody(id, player.signature_timestamp, vrSession.po_token, 'ANDROID_VR'))
+      const data = candidate?.data
+      const streams = data?.streamingData
+      if (data?.playabilityStatus?.status === 'OK' &&
+        (!data.videoDetails?.videoId || data.videoDetails.videoId === id) &&
+        (streams?.formats?.length || streams?.adaptiveFormats?.length || streams?.hlsManifestUrl || streams?.dashManifestUrl || streams?.serverAbrStreamingUrl)) {
+        playerResponse = candidate
+        context = vrSession.context
+        selectedPlayer = 'android-vr'
+        player.po_token = contentPoToken
+        totalAdTimeMilliseconds = extractTotalAdTimeMilliseconds(data)
+        responseTime = Date.now()
+      }
+    } catch {
+      console.warn('Android VR playback request failed; trying the Web fallback.')
+    }
+  }
+
+  if (selectedPlayer !== 'web') {
     // Preserve Web watch-next metadata for comments, chapters and live chat.
     nextResponse = htmlExtracts.nextResponse
       ? { data: htmlExtracts.nextResponse }
@@ -2492,7 +2548,7 @@ export async function getLocalVideoInfo(id, { skipPreferredPlayer = false } = {}
   }
 
   if (
-    !usedPreferredPlayer && playerResponse?.data &&
+    selectedPlayer === 'web' && playerResponse?.data &&
     (playerResponse.data.videoDetails?.isLive ||
     playerResponse.data.videoDetails?.isPostLiveDvr) &&
     !playerResponse.data.videoDetails?.isUpcoming &&
@@ -2512,12 +2568,12 @@ export async function getLocalVideoInfo(id, { skipPreferredPlayer = false } = {}
   try {
     info = new YT.VideoInfo([playerResponse, nextResponse], htmlExtracts.session.actions, cpn)
   } catch (error) {
-    // Some embedded responses may contain unsupported structures. Keep the
+    // Some alternate responses may contain unsupported structures. Keep the
     // original Web player if available rather than failing the watch page.
-    if (!usedPreferredPlayer || !htmlExtracts.playerResponse) throw error
+    if (selectedPlayer === 'web' || !htmlExtracts.playerResponse) throw error
     playerResponse = { data: htmlExtracts.playerResponse }
     context = htmlExtracts.session.context
-    usedPreferredPlayer = false
+    selectedPlayer = 'web'
     contentPoToken = originalContentPoToken
     player.po_token = originalContentPoToken
     totalAdTimeMilliseconds = extractTotalAdTimeMilliseconds(playerResponse.data)
@@ -2542,13 +2598,15 @@ export async function getLocalVideoInfo(id, { skipPreferredPlayer = false } = {}
     try {
       const webEmbeddedInnertube = await createInnertube({ clientType: ClientType.WEB_EMBEDDED })
       webEmbeddedInnertube.session.context.client.visitorData = context.client.visitorData
+      webEmbeddedInnertube.session.context.client.clientScreen = 'EMBED'
+      webEmbeddedInnertube.session.context.thirdParty = { embedUrl: `${Constants.URLS.YT_BASE}/` }
 
       const videoId = hasTrailer && trailerIsAgeRestricted ? info.playability_status.error_screen.video_id : id
 
       // getBasicInfo needs the signature timestamp (sts) from inside the player
       webEmbeddedInnertube.session.player = player
 
-      const bypassedInfo = await webEmbeddedInnertube.getBasicInfo(videoId, { client: 'WEB_EMBEDDED', po_token: contentPoToken })
+      const bypassedInfo = await webEmbeddedInnertube.getBasicInfo(videoId, { po_token: contentPoToken })
 
       if (bypassedInfo.playability_status.status === 'OK' && bypassedInfo.streaming_data) {
         // This separately fetched player may use different tracking metadata.
@@ -2647,7 +2705,7 @@ export async function getLocalVideoInfo(id, { skipPreferredPlayer = false } = {}
 
   return {
     info,
-    usedPreferredPlayer,
+    selectedPlayer,
     // Tracking URLs come from the chosen player, but pings use TV OAuth. They
     // are best-effort and only sent while Remember Watch History is enabled.
     watchTracker: canReportWatch && accountClient?.session?.logged_in && playbackGeneration === accountSessionGeneration

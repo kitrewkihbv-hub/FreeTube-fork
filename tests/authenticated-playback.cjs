@@ -43,8 +43,8 @@ async function testRealWire() {
     assert.ok(a >= 0 && b > a)
     return local.slice(a, b)
   }
-  const ctx = vm.createContext({ Session, Constants, deepCopy: value => JSON.parse(JSON.stringify(value)) })
-  vm.runInContext(extract('function createPlayerRequestBody(') + '\n' + extract('function createEmbeddedVideoSession('), ctx)
+  const ctx = vm.createContext({ Session, Constants, ClientType, deepCopy: value => JSON.parse(JSON.stringify(value)), createInnertube: async options => ({ session: await Session.create({ client_type: options.clientType, user_agent: options.userAgent, retrieve_player: false, retrieve_innertube_config: false, generate_session_locally: true, enable_session_cache: false, fetch: options.fetchFunc }) }) })
+  vm.runInContext(extract('function createPlayerRequestBody(') + '\n' + extract('function createEmbeddedVideoSession(') + '\n' + extract('async function createAndroidVrVideoSession('), ctx)
   const requests = []
   const fetch = async (request, init) => {
     requests.push({ url: request.url, headers: init.headers, body: init.body && JSON.parse(init.body), redirect: init.redirect })
@@ -56,17 +56,27 @@ async function testRealWire() {
   assert.equal(embedded.logged_in, false)
   assert.equal(embedded.po_token, 'video-proof')
   assert.equal(web.context.client.clientName, 'WEB', 'Web session is not mutated')
-  await embedded.actions.execute('/player', ctx.createPlayerRequestBody('video123456', 42, embedded.po_token, 'WEB_EMBEDDED'))
+  await embedded.actions.execute('/player', ctx.createPlayerRequestBody('video123456', 42, embedded.po_token))
   assert.equal(requests.length, 1)
   assert.equal(requests[0].body.context.client.clientName, 'WEB_EMBEDDED_PLAYER')
   assert.equal(requests[0].body.context.client.visitorData, 'challenge-visitor')
   assert.equal(requests[0].headers.get('x-goog-visitor-id'), 'challenge-visitor')
   assert.equal(requests[0].body.serviceIntegrityDimensions.poToken, 'video-proof')
-  assert.ok(requests[0].body.context.thirdParty.embedUrl)
+  assert.equal(requests[0].body.context.thirdParty.embedUrl, 'https://www.youtube.com/', 'youtubei.js must not override the actual embed URL')
   assert.equal(requests[0].headers.get('authorization'), null, 'TV OAuth never goes to the stream player')
   assert.equal(ctx.createEmbeddedVideoSession(web, ''), null)
   web.context.client.visitorData = ''
   assert.equal(ctx.createEmbeddedVideoSession(web, 'proof'), null)
+
+  const vr = await ctx.createAndroidVrVideoSession('challenge-visitor', 'video-proof', fetch)
+  await vr.actions.execute('/player', ctx.createPlayerRequestBody('video123456', 42, vr.po_token, 'ANDROID_VR'))
+  assert.equal(requests[1].body.context.client.clientName, 'ANDROID_VR')
+  assert.equal(requests[1].body.context.client.visitorData, 'challenge-visitor')
+  assert.equal(requests[1].body.context.client.userAgent, Constants.CLIENTS.ANDROID_VR.USER_AGENT)
+  assert.equal(requests[1].body.context.client.osName, 'Android')
+  assert.equal(requests[1].headers.get('x-youtube-client-name'), '28')
+  assert.equal(requests[1].headers.get('authorization'), null)
+  assert.equal(requests[1].body.serviceIntegrityDimensions.poToken, 'video-proof')
 
   const tv = await Session.create({ client_type: ClientType.TV, retrieve_player: false, retrieve_innertube_config: false, generate_session_locally: true, enable_session_cache: false, fetch })
   await tv.signIn({ access_token: 'tv-bearer', refresh_token: 'refresh', expiry_date: '2099-01-01T00:00:00.000Z' })
@@ -81,17 +91,17 @@ async function testRealWire() {
   await tracker.update(1)
   time += 45000
   await tracker.update(5)
-  assert.equal(requests.length, 3)
-  for (const item of requests.slice(1)) {
+  assert.equal(requests.length, 4)
+  for (const item of requests.slice(2)) {
     assert.equal(item.headers.get('authorization'), 'Bearer tv-bearer')
     assert.equal(new URL(item.url).searchParams.get('c'), 'tvhtml5')
     assert.equal(item.redirect, 'error')
   }
-  assert.ok(requests[1].url.includes('/api/stats/playback'))
-  assert.ok(requests[2].url.includes('/api/stats/watchtime'))
+  assert.ok(requests[2].url.includes('/api/stats/playback'))
+  assert.ok(requests[3].url.includes('/api/stats/watchtime'))
 }
 
-async function testSelection({ candidate, retryCandidate, signedIn = true, invalidated = false, parserError = false, missingVisitor = false, sameVisitor = false, retryFailure = false, retryEmpty = false, emptyInitial = false, skipPreferred = false, embeddedTracking = true, webTracking = true, webId = 'video123456' }) {
+async function testSelection({ candidate, retryCandidate, signedIn = true, invalidated = false, parserError = false, missingVisitor = false, sameVisitor = false, retryFailure = false, retryEmpty = false, emptyInitial = false, stage = 0, vrCandidate = null, embeddedTracking = true, webTracking = true, webId = 'video123456' }) {
   const source = fs.readFileSync('src/renderer/helpers/api/local.js', 'utf8')
   const extract = start => {
     const a = source.indexOf(start), b = source.indexOf('\n/**', a)
@@ -104,7 +114,7 @@ async function testSelection({ candidate, retryCandidate, signedIn = true, inval
   const webPlayer = { playabilityStatus: { status: 'OK' }, videoDetails: { videoId: webId }, streamingData: { formats: [{ id: 'web' }] }, ...(webTracking ? { playbackTracking: tracking } : {}) }
   const tv = { session: { logged_in: true, context: { client: { clientName: 'TVHTML5' } }, actions: { execute: async () => { events.push('tv-player'); throw Error('TV must never request /player') } } } }
   const streamResponse = (value) => value && !(value instanceof Error) && embeddedTracking ? { ...value, playbackTracking: tracking } : value
-  let firstResponse, secondResponse
+  let firstResponse, secondResponse, vrResponse
   class VideoInfo {
     constructor([player, next]) {
       if (parserError && player.data !== webPlayer) throw Error('bad embedded response')
@@ -144,26 +154,40 @@ async function testSelection({ candidate, retryCandidate, signedIn = true, inval
       return retryEmpty ? '' : 'fresh-proof'
     } } },
     buildSessionFromYtConfig: config => ({ context: config.INNERTUBE_CONTEXT }),
+    createAndroidVrVideoSession: async (visitor, token) => ({
+      context: { client: { clientName: 'ANDROID_VR', clientVersion: '3', visitorData: visitor, osName: 'Android', osVersion: '12L' } },
+      po_token: token, actions: { execute: async (path, body) => {
+        events.push('vr-player')
+        assert.equal(path, '/player')
+        assert.equal(visitor, 'original-visitor')
+        assert.equal(token, 'original-proof')
+        assert.equal(body.client, 'ANDROID_VR')
+        assert.equal(body.serviceIntegrityDimensions.poToken, token)
+        if (vrCandidate instanceof Error) throw vrCandidate
+        vrResponse = streamResponse(vrCandidate)
+        return { data: vrResponse }
+      } }
+    }),
     createEmbeddedVideoSession: (session, token) => session.context.client.visitorData ? makeSession(session.context.client.visitorData, token) : null,
     Player: { create: async () => ({ signature_timestamp: 42, decipher: async url => url }) }, PlayerCache: class {}, UniversalCache: class {},
     YT: { VideoInfo }, Utils: { generateRandomString: () => 'cpn' }, ProtoUtils: { encodeVisitorData: () => sameVisitor ? 'original-visitor' : 'fresh-visitor' }, deepCopy: x => JSON.parse(JSON.stringify(x)),
-    Constants: { CLIENT_NAME_IDS: { WEB: '1', WEB_EMBEDDED_PLAYER: '56' } },
+    Constants: { CLIENT_NAME_IDS: { WEB: '1', WEB_EMBEDDED_PLAYER: '56', ANDROID_VR: '28' } },
     extractTotalAdTimeMilliseconds: () => 0, extractLocalContentDisclosures: () => null,
     createYouTubeWatchTracker: args => { trackerArgs.push(args); return args.tracking ? { update() {} } : null },
     decipherFormats: async () => {}, decipherManifestUrl: async url => url,
     createInnertube: async () => { throw Error('unexpected fallback') }, ClientType: {}, console: { warn() {}, error() {} }, Date,
   })
   vm.runInContext([extract('function createPlayerRequestBody('), extract('function createWatchNextRequestBody('), extract('export async function getLocalVideoInfo(')].join('\n'), context)
-  const promise = context.getLocalVideoInfo('video123456', { skipPreferredPlayer: skipPreferred })
+  const promise = context.getLocalVideoInfo('video123456', { playerFallbackStage: stage })
   if (emptyInitial) { await assert.rejects(promise, /empty proof token/); assert.equal(requests.length, 0); return }
   const result = await promise
   assert.ok(!events.includes('tv-player'), 'TV session is never used for stream extraction')
   assert.equal(result.info.next.metadata, 'web')
-  const attempted = !skipPreferred && !missingVisitor
+  const attempted = stage < 1 && !missingVisitor
   const retry = attempted && !sameVisitor && !retryFailure && !retryEmpty && ['UNPLAYABLE', 'LOGIN_REQUIRED'].includes(candidate?.playabilityStatus?.status)
   assert.equal(requests.length, attempted ? (retry ? 2 : 1) : 0)
   if (attempted) {
-    assert.equal(requests[0].body.client, 'WEB_EMBEDDED')
+    assert.equal(requests[0].body.client, undefined, 'avoid youtubei.js overriding embedUrl')
     assert.equal(requests[0].body.serviceIntegrityDimensions.poToken, 'original-proof')
     assert.equal(requests[0].visitor, 'original-visitor')
   }
@@ -171,12 +195,18 @@ async function testSelection({ candidate, retryCandidate, signedIn = true, inval
     assert.equal(requests[1].visitor, 'fresh-visitor')
     assert.equal(requests[1].body.serviceIntegrityDimensions.poToken, 'fresh-proof')
   }
-  const selected = retry ? secondResponse : firstResponse
-  const preferred = attempted && !parserError && selected?.playabilityStatus?.status === 'OK' && selected.streamingData && (!selected.videoDetails?.videoId || selected.videoDetails.videoId === 'video123456')
-  assert.equal(result.info.player, preferred ? selected : webPlayer)
-  assert.equal(result.usedPreferredPlayer, !!preferred)
-  assert.equal(result.poToken, preferred && retry ? 'fresh-proof' : 'original-proof')
-  assert.equal(result.clientInfo.clientName, preferred ? '56' : '1')
+  const embedResponse = retry ? secondResponse : firstResponse
+  const playable = data => data?.playabilityStatus?.status === 'OK' && (!data.videoDetails?.videoId || data.videoDetails.videoId === 'video123456') && !!(data.streamingData?.formats?.length || data.streamingData?.adaptiveFormats?.length || data.streamingData?.hlsManifestUrl || data.streamingData?.dashManifestUrl || data.streamingData?.serverAbrStreamingUrl)
+  const embedded = attempted && playable(embedResponse)
+  const shouldTryVR = !embedded && stage < 2 && !missingVisitor
+  assert.equal(events.includes('vr-player'), shouldTryVR)
+  const vrSelected = shouldTryVR && playable(vrResponse)
+  const chosen = embedded ? embedResponse : vrSelected ? vrResponse : webPlayer
+  const preferred = (embedded || vrSelected) && !parserError
+  assert.equal(result.info.player, preferred ? chosen : webPlayer)
+  assert.equal(result.selectedPlayer, preferred ? (embedded ? 'embedded' : 'android-vr') : 'web')
+  assert.equal(result.poToken, preferred && embedded && retry ? 'fresh-proof' : 'original-proof')
+  assert.equal(result.clientInfo.clientName, preferred ? (embedded ? '56' : '28') : '1')
   assert.equal(trackerArgs.length, signedIn && !invalidated ? 1 : 0)
   if (trackerArgs.length) {
     assert.equal(trackerArgs[0].session, tv.session, 'TV session is used only for watch tracking')
@@ -196,7 +226,8 @@ async function testSelection({ candidate, retryCandidate, signedIn = true, inval
   await testSelection({ candidate: valid })
   await testSelection({ candidate: valid, signedIn: false })
   await testSelection({ candidate: valid, invalidated: true })
-  await testSelection({ candidate: valid, skipPreferred: true })
+  await testSelection({ candidate: valid, stage: 2 })
+  await testSelection({ candidate: valid, stage: 1, vrCandidate: valid })
   await testSelection({ candidate: valid, missingVisitor: true })
   await testSelection({ candidate: valid, emptyInitial: true })
   await testSelection({ candidate: valid, parserError: true })
@@ -204,6 +235,12 @@ async function testSelection({ candidate, retryCandidate, signedIn = true, inval
   await testSelection({ candidate: { playabilityStatus: { status: 'OK' }, videoDetails: { videoId: 'video123456', isLive: true }, streamingData: { hlsManifestUrl: 'https://example.test/live' } } })
   await testSelection({ candidate: valid, embeddedTracking: false })
   await testSelection({ candidate: valid, embeddedTracking: false, webId: 'wrong-video' })
+  const embedError = { playabilityStatus: { status: 'ERROR', errorCode: 'PLAYABILITY_ERROR_CODE_EMBEDDER_IDENTITY_DENIED' } }
+  await testSelection({ candidate: { playabilityStatus: { status: 'OK' }, streamingData: {} }, vrCandidate: valid })
+  await testSelection({ candidate: embedError, vrCandidate: valid })
+  await testSelection({ candidate: embedError, vrCandidate: embedError })
+  await testSelection({ candidate: embedError, vrCandidate: new Error('offline') })
+  await testSelection({ candidate: unplayable, retryCandidate: unplayable, vrCandidate: valid })
   await testSelection({ candidate: unplayable, retryCandidate: valid })
   await testSelection({ candidate: login, retryCandidate: valid })
   await testSelection({ candidate: unplayable, retryCandidate: unplayable })
@@ -211,5 +248,5 @@ async function testSelection({ candidate, retryCandidate, signedIn = true, inval
   await testSelection({ candidate: login, retryEmpty: true })
   await testSelection({ candidate: login, sameVisitor: true })
   await testSelection({ candidate: new Error('offline') })
-  console.log('Embedded playback and TV watch reporting tests passed')
+  console.log('Embedded, Android VR and TV watch reporting tests passed')
 })().catch(error => { console.error(error); process.exitCode = 1 })

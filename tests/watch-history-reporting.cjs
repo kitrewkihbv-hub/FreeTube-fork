@@ -23,6 +23,18 @@ assert.deepEqual(chapters, [1, 2, 3, 4])
 assert.deepEqual(updates, [1])
 assert.match(code, /if \(this\.rememberHistory\) \{[\s\S]*?this\.addToHistory\(/, 'existing local history still records videos')
 assert.match(code, /this\.updateWatchProgress\(payload\)/, 'existing local progress saves remain in place')
-assert.match(code, /usedPreferredPlayer && !this\.videoPlayerLoaded/, 'early preferred-stream 403 retries Web fallback once')
-assert.match(code, /skipPreferredPlayer: preferWebFallback/, 'retry skips the preferred stream rather than disabling account watch reporting')
+assert.match(code, /selectedPlayer !== 'web' && !this\.videoPlayerLoaded/, 'early preferred-stream 403 retries Web fallback once')
+assert.match(code, /getLocalVideoInfo\(this\.videoId, \{ playerFallbackStage \}\)/, 'retry skips failed clients rather than disabling account watch reporting')
+const errorStart = code.indexOf('    handlePlayerError: function (error) {')
+const errorEnd = code.indexOf('    handleActiveFormatUnavailable:', errorStart)
+const onError = vm.runInNewContext(`({${code.slice(errorStart, errorEnd)}}).handlePlayerError`, { shaka: { util: { Error: { Code: { HTTP_ERROR: 1, BAD_HTTP_STATUS: 2, VIDEO_ERROR: 3 } } } } })
+const stages = []
+const playerView = { selectedPlayer: 'embedded', videoPlayerLoaded: false, isReloadingView: false, streamingDataExpiryDate: new Date(Date.now() + 100000), handleWatchProgressAutoSaveWhenProgressEnabled() {}, reloadView: async stage => stages.push(stage) }
+onError.call(playerView, { code: 2, data: [null, 403] })
+playerView.selectedPlayer = 'android-vr'
+onError.call(playerView, { code: 2, data: [null, 403] })
+playerView.selectedPlayer = 'web'
+onError.call(playerView, { code: 2, data: [null, 403] })
+assert.deepEqual(stages, [1, 2], 'early media errors advance embedded → VR → Web without looping')
+assert.match(playerView.errorMessage, /403/)
 console.log('Watch history reporting tests passed')

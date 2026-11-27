@@ -34,6 +34,7 @@ import { isFreeTubeUrl } from './utils'
 import { startLocalControlServer } from './localControlServer.cjs'
 import { createMusicControlLifecycle } from './musicControlLifecycle.cjs'
 import { createTitleStatusFile } from './titleStatusFile.cjs'
+import { configureInnertubeHeaders } from './innertubeRequestHeaders.cjs'
 import {
   cancelSignIn,
   ensureValidYouTubeAuth,
@@ -691,15 +692,8 @@ function runApp() {
       const urlObj = new URL(url)
 
       if (url.startsWith('https://www.youtube.com/youtubei/')) {
-        // make InnerTube requests work with the fetch function
-        // InnerTube rejects requests if the referer isn't YouTube or empty
-        requestHeaders.Referer = 'https://www.youtube.com/'
-        requestHeaders.Origin = 'https://www.youtube.com'
-
-        requestHeaders['Sec-Fetch-Site'] = 'same-origin'
-        requestHeaders['Sec-Fetch-Mode'] = 'same-origin'
-        const authorization = Object.entries(requestHeaders).find(([key]) => key.toLowerCase() === 'authorization')?.[1]
-        requestHeaders['X-Youtube-Bootstrap-Logged-In'] = /^Bearer\s/i.test(authorization ?? '') ? 'true' : 'false'
+        // Electron, rather than renderer fetch, controls these restricted headers.
+        configureInnertubeHeaders(requestHeaders, url)
       } else if (
         url.startsWith('https://www.youtube.com/watch') ||
         (urlObj.origin === 'www.youtube.com' && urlObj.pathname === '/')
