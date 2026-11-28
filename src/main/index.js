@@ -33,7 +33,6 @@ import { generatePoToken } from './poTokenGenerator'
 import { isFreeTubeUrl } from './utils'
 import { startLocalControlServer } from './localControlServer.cjs'
 import { createMusicControlLifecycle } from './musicControlLifecycle.cjs'
-import { createWidgetPlayerRegistry, startWidgetPlayerBridge } from './widgetPlayerBridge.cjs'
 import { createTitleStatusFile } from './titleStatusFile.cjs'
 import { configureInnertubeHeaders } from './innertubeRequestHeaders.cjs'
 import {
@@ -107,21 +106,6 @@ function runApp() {
   ])
 
   const ROOT_APP_URL = process.env.NODE_ENV === 'development' ? 'http://localhost:9080' : 'app://bundle/index.html'
-
-  // Independent and opt-in: does not alter the YouTube playback session or
-  // the older Music-only widget API. It listens only while a player opts in.
-  const widgetBridgeLifecycle = createMusicControlLifecycle(() => startWidgetPlayerBridge({
-    registry: widgetPlayerRegistry,
-    dispatch: (sender, command) => {
-      if (!sender.isDestroyed()) sender.send(IpcChannels.WIDGET_BRIDGE_COMMAND, command)
-    },
-  }))
-  const widgetPlayerRegistry = createWidgetPlayerRegistry(active => widgetBridgeLifecycle.setActive(active))
-  app.on('will-quit', () => widgetBridgeLifecycle.setActive(false))
-  ipcMain.on(IpcChannels.WIDGET_BRIDGE_STATE, (event, state) => {
-    if (!event.senderFrame || !isFreeTubeUrl(event.senderFrame.url) || event.senderFrame !== event.sender.mainFrame) return
-    widgetPlayerRegistry.setPlayer(event.sender, state)
-  })
 
   // Track playback per window. Prefer a currently playing window, then the most
   // recently active loaded player; a closed/navigated window cannot stay stale.

@@ -142,6 +142,7 @@
           :autoplay-possible="autoplayPossible"
           :autoplay-enabled="autoplayEnabled"
           :watching-playlist="watchingPlaylist"
+          :next-video-available="watchingPlaylist || (!hideRecommendedVideos && !!nextRecommendedVideo)"
           :vr-projection="vrProjection"
           :start-in-fullscreen="startNextVideoInFullscreen"
           :start-in-fullwindow="startNextVideoInFullwindow"

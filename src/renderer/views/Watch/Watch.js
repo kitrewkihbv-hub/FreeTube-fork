@@ -43,6 +43,7 @@ import {
 } from '../../helpers/api/invidious'
 import { sortCaptions } from '../../helpers/player/utils'
 import { MANIFEST_TYPE_SABR } from '../../helpers/player/SabrManifestParser'
+import { hasDirectDashUrl, canTryDirectDash, fallbackStageFor } from '../../helpers/player/sabrRecovery.cjs'
 import { useI18n } from 'vue-i18n'
 
 /**
@@ -82,15 +83,10 @@ export default defineComponent({
   },
   beforeRouteLeave: async function (to, from, next) {
     this.widgetControlsActive = false
-    this.sabrPendingVideoId = null
+    this.sabrDeferredVideoId = null
     this.sabrResumeVideoId = null
     this.stopLocalWidgetControls?.()
-    this.stopWidgetBridgeControls?.()
-    if (process.env.IS_ELECTRON) {
-      window.ftElectron.updateLocalPlayerState(null)
-      if (this.widgetBridgePublished) window.ftElectron.updateWidgetBridgeState(null)
-      this.widgetBridgePublished = false
-    }
+    if (process.env.IS_ELECTRON) window.ftElectron.updateLocalPlayerState(null)
     this.handleRouteChange()
     window.removeEventListener('beforeunload', this.handleWatchProgressAutoSave)
     document.removeEventListener('keydown', this.resetAutoplayInterruptionTimeout)
@@ -124,8 +120,6 @@ export default defineComponent({
       musicCurrentTime: 0,
       musicShowDetails: false,
       stopLocalWidgetControls: null,
-      stopWidgetBridgeControls: null,
-      widgetBridgePublished: false,
       widgetControlsActive: false,
       isFamilyFriendly: false,
       isLive: false,
@@ -205,16 +199,15 @@ export default defineComponent({
 
       isReloadingView: false,
       selectedPlayer: 'web',
-      sabrReloadInFlight: false,
-      sabrPendingVideoId: null,
+      sabrRecoveryVideoId: null,
+      sabrRecoveryCount: 0,
+      sabrRecoveryPosition: 0,
+      sabrRecoveryInFlight: false,
+      sabrDeferredVideoId: null,
       sabrResumeVideoId: null,
-      sabrRetryVideoId: null,
-      sabrRetryCount: 0,
-      sabrRetryStartPosition: 0,
     }
   },
   computed: {
-    widgetBridgeEnabled() { return this.$store.getters.getEnableLocalWidgetBridge === true },
     historyEntry: function () {
       return this.$store.getters.getHistoryCacheById[this.videoId]
     },
@@ -364,38 +357,31 @@ export default defineComponent({
     }
   },
   watch: {
-    videoTitle() { this.syncLocalPlayerState(); this.syncWidgetBridgeState() },
-    channelName() { this.syncLocalPlayerState(); this.syncWidgetBridgeState() },
-    videoPlayerLoaded() { this.syncLocalPlayerState(); this.syncWidgetBridgeState() },
-    isLoading() { this.syncLocalPlayerState(); this.syncWidgetBridgeState() },
-    errorMessage() { this.syncLocalPlayerState(); this.syncWidgetBridgeState() },
+    videoTitle() { this.syncLocalPlayerState() },
+    channelName() { this.syncLocalPlayerState() },
+    videoPlayerLoaded() { this.syncLocalPlayerState() },
+    isLoading() { this.syncLocalPlayerState() },
+    errorMessage() { this.syncLocalPlayerState() },
     musicPlaying(playing) {
       this.syncLocalPlayerState()
-      this.syncWidgetBridgeState()
       if (playing) {
         if (this.sabrResumeVideoId === this.videoId) this.sabrResumeVideoId = null
-        if (this.sabrPendingVideoId === this.videoId) this.onSabrReloadRequested()
+        if (this.sabrDeferredVideoId === this.videoId) this.onSabrReloadRequested()
       }
     },
-    videoLengthSeconds() { this.syncWidgetBridgeState() },
-    videoId() { this.syncWidgetBridgeState() },
-    isReloadingView() { this.syncWidgetBridgeState() },
-    musicCurrentTime(value, previous) {
-      if (this.widgetBridgeEnabled && Math.floor(value) !== Math.floor(previous)) this.syncWidgetBridgeState()
-    },
-    widgetBridgeEnabled() { this.syncWidgetBridgeState() },
     musicShuffle() { this.syncLocalPlayerState() },
+    autoplayNextRecommendedVideoByDefault(value) { this.autoplayNextRecommendedVideo = value },
+    autoplayNextPlaylistVideoByDefault(value) { this.autoplayNextPlaylistVideo = value },
     watchingPlaylist(value) {
       if (!value) this.musicShuffle = false
       this.syncLocalPlayerState()
     },
     async $route() {
       if (this.$route.params.id !== this.videoId) {
-        this.sabrPendingVideoId = null
+        this.sabrDeferredVideoId = null
         this.sabrResumeVideoId = null
       }
       this.syncLocalPlayerState()
-      this.syncWidgetBridgeState()
       await this.reloadView()
     },
     userPlaylistsReady() {
@@ -416,9 +402,7 @@ export default defineComponent({
     if (process.env.IS_ELECTRON) {
       this.widgetControlsActive = true
       this.stopLocalWidgetControls = window.ftElectron.onLocalPlayerCommand(this.handleLocalPlayerCommand)
-      this.stopWidgetBridgeControls = window.ftElectron.onWidgetBridgeCommand(this.handleWidgetBridgeCommand)
       this.syncLocalPlayerState()
-      this.syncWidgetBridgeState()
     }
     this.onMountedDependOnLocalStateLoading()
   },
@@ -434,44 +418,6 @@ export default defineComponent({
             shuffle: this.watchingPlaylist && this.musicShuffle,
           }
         : null)
-    },
-    syncWidgetBridgeState() {
-      if (!process.env.IS_ELECTRON || !this.widgetControlsActive) return
-      const loaded = this.widgetBridgeEnabled && this.videoPlayerLoaded && !this.isLoading && !this.isReloadingView && !this.errorMessage && this.videoTitle && this.videoId === this.$route.params.id
-      if (loaded) {
-        this.widgetBridgePublished = true
-        window.ftElectron.updateWidgetBridgeState({
-          mode: this.$route.query.music === '1' ? 'music' : 'video',
-          videoId: this.videoId,
-          title: this.videoTitle,
-          artist: this.channelName,
-          playing: this.musicPlaying,
-          duration: Number(this.videoLengthSeconds) || 0,
-          position: Number(this.musicCurrentTime) || 0,
-        })
-      } else if (this.widgetBridgePublished) {
-        this.widgetBridgePublished = false
-        window.ftElectron.updateWidgetBridgeState(null)
-      }
-    },
-    handleWidgetBridgeCommand(command) {
-      const player = this.$refs.player
-      const mode = this.$route.query.music === '1' ? 'music' : 'video'
-      if (!this.widgetControlsActive || !this.widgetBridgeEnabled || !this.videoPlayerLoaded || this.isLoading || this.isReloadingView || this.errorMessage || !player ||
-        command?.mode !== mode || command.videoId !== this.videoId || this.$route.params.id !== this.videoId) return
-      switch (command.action) {
-        case 'play': if (player.isPaused()) player.togglePlayback(); break
-        case 'pause': if (!player.isPaused()) player.pause(); break
-        case 'next': this.handleSkipToNext(); break
-        case 'previous':
-          if (player.getCurrentTime() > 4) player.setCurrentTime(0)
-          else if (this.watchingPlaylist) this.handleSkipToPrev()
-          else this.$router.back()
-          break
-        case 'seek':
-          if (Number.isFinite(command.seconds) && command.seconds >= 0 && this.videoLengthSeconds > 0 && command.seconds <= this.videoLengthSeconds) player.setCurrentTime(command.seconds)
-          break
-      }
     },
     handleLocalPlayerCommand(command) {
       if (this.$route.query.music !== '1' || !this.videoPlayerLoaded || this.isLoading || this.errorMessage) return
@@ -492,7 +438,7 @@ export default defineComponent({
       if (Number.isFinite(seconds)) this.$refs.player?.setCurrentTime(seconds)
     },
     musicTime(seconds) { return formatDurationAsTimestamp(Math.max(0, Math.floor(seconds || 0))) },
-    async reloadView(playerFallbackStage = 0, reloadTimestamp = null) {
+    async reloadView(playerFallbackStage = 0, recovery = null) {
       if (this.isReloadingView) { return }
 
       try {
@@ -513,13 +459,13 @@ export default defineComponent({
         this.activeFormat = this.defaultVideoFormat
 
         this.checkIfTimestamp()
-        if (reloadTimestamp !== null) this.oneTimeTimestamp = reloadTimestamp
+        if (recovery && Number.isFinite(recovery.timestamp)) this.oneTimeTimestamp = recovery.timestamp
         this.checkIfPlaylist()
         this.setViewingModeOnRouteChange()
 
         switch (this.backendPreference) {
           case 'local':
-            await this.getVideoInformationLocal(playerFallbackStage)
+            await this.getVideoInformationLocal(playerFallbackStage, recovery?.preferDirectDash === true)
             break
           case 'invidious':
             this.getVideoInformationInvidious()
@@ -646,7 +592,7 @@ export default defineComponent({
       }
     },
 
-    getVideoInformationLocal: async function (playerFallbackStage = 0) {
+    getVideoInformationLocal: async function (playerFallbackStage = 0, preferDirectDash = false) {
       if (this.firstLoad) {
         this.isLoading = true
       }
@@ -1045,7 +991,18 @@ export default defineComponent({
               })
               ?.projection_type ?? null
 
-            if (
+            let directDash = null
+            if (preferDirectDash && canTryDirectDash(result.streaming_data.adaptive_formats)) {
+              try {
+                directDash = await this.createLocalDashManifest(result, false, true)
+              } catch {
+                console.warn('Direct DASH recovery was unavailable; trying the existing SABR stream.')
+              }
+            }
+            if (directDash) {
+              this.manifestSrc = directDash
+              this.manifestMimeType = MANIFEST_TYPE_DASH
+            } else if (
               videoInfo.info.streaming_data?.server_abr_streaming_url &&
               videoInfo.info.player_config?.media_common_config?.media_ustreamer_request_config
             ) {
@@ -1370,9 +1327,8 @@ export default defineComponent({
      */
     handleTimeUpdate: function (currentSeconds) {
       this.musicCurrentTime = currentSeconds
-      // Sustained forward playback clears the short-term reload budget.
-      if (this.sabrRetryCount && this.sabrRetryVideoId === this.videoId && currentSeconds >= this.sabrRetryStartPosition + 30) {
-        this.sabrRetryCount = 0
+      if (this.sabrRecoveryCount && this.sabrRecoveryVideoId === this.videoId && currentSeconds >= this.sabrRecoveryPosition + 60) {
+        this.sabrRecoveryCount = 0
       }
       this.updateCurrentChapter(currentSeconds)
       if (this.rememberHistory && !this.isUpcoming && this.$refs.player?.hasLoaded && !this.$refs.player.isPaused()) {
@@ -1692,8 +1648,9 @@ export default defineComponent({
     },
 
     // Skip to the next video if in a playlist
-    // else next recommended video if autoplay enabled
+    // else the next recommended video, even when autoplay is off
     handleSkipToNext: function () {
+      if (this.playNextTimeout) this.abortAutoplayCountdown(true)
       if (this.watchingPlaylist) {
         this.$refs.watchVideoPlaylist?.playNextVideo()
       } else if (!this.hideRecommendedVideos && this.nextRecommendedVideo) {
@@ -1821,9 +1778,11 @@ export default defineComponent({
     /**
      * @param {import('youtubei.js').YT.VideoInfo} videoInfo
      * @param {boolean} includeThumbnails
+     * @param {boolean} directOnly
      */
-    createLocalDashManifest: async function (videoInfo, includeThumbnails = false) {
+    createLocalDashManifest: async function (videoInfo, includeThumbnails = false, directOnly = false) {
       const xmlData = await videoInfo.toDash({
+        format_filter: directOnly ? format => !hasDirectDashUrl(format) : undefined,
         manifest_options: {
           include_thumbnails: includeThumbnails,
         },
@@ -2108,10 +2067,13 @@ export default defineComponent({
         this.abortAutoplayCountdown()
       }
 
+      const enabled = !this.autoplayEnabled
       if (this.watchingPlaylist) {
-        this.autoplayNextPlaylistVideo = !this.autoplayEnabled
+        this.autoplayNextPlaylistVideo = enabled
+        this.$store.dispatch('updateAutoplayPlaylists', enabled)
       } else {
-        this.autoplayNextRecommendedVideo = !this.autoplayEnabled
+        this.autoplayNextRecommendedVideo = enabled
+        this.$store.dispatch('updatePlayNextVideo', enabled)
       }
     },
 
@@ -2159,50 +2121,50 @@ export default defineComponent({
     },
 
     onManualReloadRequested: throttle(async function () {
-      this.sabrPendingVideoId = null
+      this.sabrDeferredVideoId = null
       this.sabrResumeVideoId = null
-      this.sabrRetryCount = 0
+      this.sabrRecoveryCount = 0
       await this.saveWatchProgressForReload()
       await this.reloadView()
     }, 1000),
 
     async onSabrReloadRequested() {
-      if (this.isReloadingView || this.sabrReloadInFlight || this.$route.params.id !== this.videoId) return
+      if (this.isReloadingView || this.sabrRecoveryInFlight || this.$route.params.id !== this.videoId) return
       const player = this.$refs.player
       if (!player) return
       const videoId = this.videoId
-      if (this.sabrRetryVideoId !== videoId) {
-        this.sabrRetryVideoId = videoId
-        this.sabrRetryCount = 0
+      if (this.sabrRecoveryVideoId !== videoId) {
+        this.sabrRecoveryVideoId = videoId
+        this.sabrRecoveryCount = 0
       }
-      // The streaming layer already aborted its requests. Keep a paused player
-      // paused and recover only when the user explicitly presses play again.
+      // SABR has aborted requests. Avoid starting a paused player unexpectedly.
       if (player.hasLoaded && player.isPaused()) {
-        this.sabrPendingVideoId = videoId
+        this.sabrDeferredVideoId = videoId
         return
       }
-      this.sabrPendingVideoId = null
-      if (this.sabrRetryCount >= 3) {
-        showToast('The stream keeps requesting reloads. Automatic retries stopped; reload manually to try again.', 10000)
+      this.sabrDeferredVideoId = null
+      if (this.sabrRecoveryCount >= 3) {
+        showToast('The video stream could not recover. Try reloading manually or another backend.', 10000)
         return
       }
       const timestamp = this.getTimestamp()
-      const nextStage = this.selectedPlayer === 'authenticated-embedded' ? 1 : this.selectedPlayer === 'embedded' ? 2 : 3
-      this.sabrRetryCount++
-      this.sabrRetryStartPosition = timestamp
+      const stage = fallbackStageFor(this.selectedPlayer, this.sabrRecoveryCount > 0)
+      this.sabrRecoveryCount++
+      this.sabrRecoveryPosition = timestamp
       this.sabrResumeVideoId = player.isPaused() ? null : videoId
-      this.sabrReloadInFlight = true
+      this.sabrRecoveryInFlight = true
       try {
-        // Pass progress directly: changing the route would cause another reload.
-        await this.reloadView(nextStage, timestamp)
-      } catch (error) {
+        // Try direct DASH only after SABR fails and only if complete formats exist.
+        // Avoid changing the route, which otherwise triggers another page reload.
+        await this.reloadView(stage, { timestamp, preferDirectDash: true })
+      } catch {
         this.sabrResumeVideoId = null
-        console.warn('SABR recovery failed:', error)
+        console.warn('Playback recovery failed.')
         if (this.videoId === videoId && this.$route.params.id === videoId) {
           showToast('Could not reload the video stream. Try reloading manually.', 10000)
         }
       } finally {
-        this.sabrReloadInFlight = false
+        this.sabrRecoveryInFlight = false
       }
     },
 

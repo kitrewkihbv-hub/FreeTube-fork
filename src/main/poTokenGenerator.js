@@ -81,6 +81,7 @@ export function generatePoToken(videoId, context, initialAttestationData, ytConf
 let theSession
 /** @type {string} */
 let cachedScript
+let configuredProxyKey = null
 
 async function sharedInit() {
   // setup session
@@ -159,10 +160,13 @@ async function internalGeneratePotoken(videoId, context, initialAttestationData,
   let webContentsView
 
   try {
-    if (proxyUrl) {
-      await theSession.setProxy({
-        proxyRules: proxyUrl
-      })
+    // A reused isolated session must not retain a proxy after it is disabled.
+    // Use Electron's system proxy configuration when no explicit proxy is set.
+    const proxyKey = proxyUrl || ''
+    if (configuredProxyKey !== proxyKey) {
+      await theSession.setProxy(proxyUrl ? { proxyRules: proxyUrl } : { mode: 'system' })
+      await theSession.closeAllConnections()
+      configuredProxyKey = proxyKey
     }
 
     webContentsView = new WebContentsView({

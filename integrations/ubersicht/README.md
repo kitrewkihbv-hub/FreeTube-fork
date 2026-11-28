@@ -1,4 +1,6 @@
-# MacTube Dynamic Island widget
+# Archived MacTube Dynamic Island widget
+
+**Archive only:** these widget copies were made for experimental builds 37–38. The current build 30-based app removes their bridge, so they will not connect to this app. They are kept as reference for your new Boring Notch fork.
 
 This is an adaptation of the supplied `dynamic-island-2.jsx`. It keeps the original widget's appearance and its Spotify, Apple Music and browser YouTube integration, and adds separate local MacTube Music and Video sources. It is not an official Spotify or YouTube API client. The original widget's existing macOS permissions and other functionality are unchanged.
 

@@ -66,7 +66,6 @@ const ytPollScript = (b) => {
 /* ───────────────────────── DATA COMMAND ───────────────────────── */
 export const command = `
 echo "###DI-BATT"; pmset -g batt 2>/dev/null
-echo "###DI-VOL"; osascript -e 'set v to get volume settings' -e 'return ((output volume of v) as string) & "," & ((output muted of v) as string)' 2>/dev/null
 echo "###DI-SPOT"
 if pgrep -xq Spotify; then osascript 2>/dev/null <<'EOF'
 tell application "Spotify"
@@ -291,6 +290,21 @@ if (typeof window !== 'undefined') {
   if (window.__diBT) clearInterval(window.__diBT);
   window.__diBT = setInterval(pollBT, 10000);
   setTimeout(pollBT, 1500);
+
+  // Poll macOS volume independently so the music/browser polling command does
+  // not delay the volume HUD. Never overlap slow osascript invocations.
+  if (window.__diVolume) clearInterval(window.__diVolume);
+  let volumePollBusy = false;
+  const pollVolume = () => {
+    if (volumePollBusy) return;
+    volumePollBusy = true;
+    run(`osascript -e 'set v to get volume settings' -e 'return ((output volume of v) as string) & "," & ((output muted of v) as string)' 2>/dev/null`)
+      .then((out) => send({ type: 'DI_SYSVOL', out }))
+      .catch(() => {})
+      .finally(() => { volumePollBusy = false; });
+  };
+  window.__diVolume = setInterval(pollVolume, 250);
+  pollVolume();
 }
 
 /* ───────────────────────── STATE ───────────────────────── */
@@ -316,6 +330,20 @@ export const initialState = {
 const setT = (s, t) => {
   if (s.transient && s.transient.kind === 'timerdone' && s.transient.until > Date.now()) return;
   s.transient = t;
+};
+
+// This is macOS output volume, independent of the MacTube player volume.
+const ingestVolume = (prev, output) => {
+  if (typeof output !== 'string') return prev;
+  const match = output.trim().match(/^(\d+(?:\.\d+)?),\s*(true|false)$/i);
+  if (!match) return prev;
+  const vol = Math.max(0, Math.min(100, Number(match[1])));
+  const muted = match[2].toLowerCase() === 'true';
+  const s = { ...prev, volume: vol, muted };
+  if (prev.volume !== null && (vol !== prev.volume || muted !== prev.muted)) {
+    setT(s, { kind: 'volume', until: Date.now() + 1900 });
+  }
+  return s;
 };
 
 const sections = (out) => {
@@ -398,20 +426,6 @@ const ingest = (prev, out) => {
     }
   }
 
-  // Volume
-  if (sec.VOL) {
-    const [a, m] = sec.VOL.split(',');
-    const vol = parseFloat(a);
-    const muted = m === 'true';
-    if (!isNaN(vol)) {
-      if (prev.volume !== null && (vol !== prev.volume || muted !== prev.muted)) {
-        setT(s, { kind: 'volume', until: now + 1900 });
-      }
-      s.volume = vol;
-      s.muted = muted;
-    }
-  }
-
   // YouTube (several browsers may each return a line)
   const ytLines = (sec.YT || '').split('\n').map((x) => x.trim()).filter(Boolean);
   const ytOK = ytLines.filter((l) => !l.startsWith('NOJS'));
@@ -490,6 +504,7 @@ export const updateState = (event, prev) => {
   const now = Date.now();
   switch (event.type) {
     case 'DI_TICK': return tick(prev, now);
+    case 'DI_SYSVOL': return ingestVolume(prev, event.out);
     case 'DI_HOVER': return { ...prev, hover: event.value, now };
     case 'DI_EXPAND':
       return {

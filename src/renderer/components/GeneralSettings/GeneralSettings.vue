@@ -28,14 +28,6 @@
       </div>
       <div class="switchColumn">
         <FtToggleSwitch
-          v-if="USING_ELECTRON"
-          :label="t('Settings.General Settings.Local Widget Bridge')"
-          :default-value="localWidgetBridge"
-          :compact="true"
-          :tooltip="t('Settings.General Settings.Local Widget Bridge Tooltip')"
-          @change="updateLocalWidgetBridge"
-        />
-        <FtToggleSwitch
           :label="t('Settings.General Settings.Enable Search Suggestions')"
           :default-value="enableSearchSuggestions"
           :compact="true"
@@ -213,11 +205,6 @@ if (process.env.IS_ELECTRON && process.platform === 'linux') {
 
 /** @type {import('vue').ComputedRef<boolean>} */
 const checkForUpdates = computed(() => store.getters.getCheckForUpdates)
-
-const localWidgetBridge = computed(() => store.getters.getEnableLocalWidgetBridge)
-function updateLocalWidgetBridge(value) {
-  store.dispatch('updateEnableLocalWidgetBridge', value)
-}
 
 /**
  * @param {boolean} value

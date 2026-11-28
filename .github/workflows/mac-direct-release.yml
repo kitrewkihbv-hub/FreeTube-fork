@@ -75,9 +75,9 @@ jobs:
         run: |
           set -euo pipefail
           cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
-          Experimental SABR recovery limits consecutive reloads, defers recovery while paused until play is requested, and advances through the existing playback fallbacks while preserving position. After repeated failures automatic retries stop, so playback may still stall until manually reloaded. This mitigates the reported loop but does not establish or fix its underlying cause; real Mac playback and the reported failing video remain unverified. The initial playback client selection and proof-token logic remain based on mac-build-30.
+          This build returns to the mac-build-30 app baseline and removes the experimental port 8766 Dynamic Island bridge. After a SABR reload request, it tries a direct DASH stream when suitable audio and video formats are supplied, then may advance through existing player fallbacks. Repeated failures are bounded and paused playback is not automatically restarted. This is an experimental workaround, not a diagnosed fix; the affected videos and actual macOS playback have not been tested. Playback may still fail or stall.
 
-          Enable the bridge in General Settings, and install the included dynamic-island-new-mactube.jsx in Übersicht; see widget-README.md for setup. The adapted widget is based on the supplied file and now remains visible while playback is active. The bridge binds to 127.0.0.1:8766 while an enabled player is loaded, and rejects browser-origin requests, but any local program can read and control playback while enabled. Never send Spotify or Google credentials to it. The adapted widget and app have not been tested together on a Mac.
+          A Next button appears for available recommendations or playlists. The player autoplay toggle now saves its setting; the new default autoplay countdown is zero, while existing saved countdowns remain unchanged. Actual load time still depends on network and token generation. The isolated proof-token session now returns to the system proxy after an explicit app proxy is disabled; Mac VPN and proxy behavior remain unverified.
 
           The macOS Übersicht title file at /tmp/mactube_np.txt now has a fourth thumbnail URL field and is updated on in-page navigation. PLAYING means the window has a nonempty page title, not necessarily that media is playing. Page titles can be recorded outside Music. Opening the thumbnail URL contacts YouTube. The file is removed on window close or quit when possible.
 
@@ -93,9 +93,7 @@ jobs:
 
           Download arm64 for Apple Silicon, or the file without arm64 for Intel. MacTube shares the existing FreeTube data directory, so back up your data before upgrading.
           NOTES
-          cp integrations/ubersicht/dynamic-island-new-mactube.jsx assets/dynamic-island-new-mactube.jsx
-          cp integrations/ubersicht/README.md assets/widget-README.md
-          gh release create mac-build-38 assets/dynamic-island-new-mactube.jsx assets/widget-README.md assets/MacTube-0.26.0.dmg assets/MacTube-0.26.0-arm64.dmg assets/MacTube-0.26.0-mac.zip assets/MacTube-0.26.0-arm64-mac.zip --draft --target "$GITHUB_SHA" --title 'MacTube (mac-build-38)' --notes-file "$RUNNER_TEMP/release-notes.md"
+          gh release create mac-build-39 assets/MacTube-0.26.0.dmg assets/MacTube-0.26.0-arm64.dmg assets/MacTube-0.26.0-mac.zip assets/MacTube-0.26.0-arm64-mac.zip --draft --target "$GITHUB_SHA" --title 'MacTube (mac-build-39)' --notes-file "$RUNNER_TEMP/release-notes.md"
 
   scan-and-publish:
     needs: mac-release
@@ -115,7 +113,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p assets
-          gh release download mac-build-38 --pattern '*.zip' --dir assets
+          gh release download mac-build-39 --pattern '*.zip' --dir assets
           test -f assets/MacTube-0.26.0-mac.zip
           test -f assets/MacTube-0.26.0-arm64-mac.zip
       - name: Install ClamAV and update signatures
@@ -143,4 +141,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-        run: gh release edit mac-build-38 --draft=false
+        run: gh release edit mac-build-39 --draft=false

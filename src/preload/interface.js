@@ -23,15 +23,6 @@ export default {
     return () => ipcRenderer.removeListener(IpcChannels.LOCAL_PLAYER_COMMAND, listener)
   },
 
-  /** @param {{mode: string, videoId: string, title: string, artist: string, playing: boolean, duration: number, position: number}|null} state */
-  updateWidgetBridgeState: (state) => ipcRenderer.send(IpcChannels.WIDGET_BRIDGE_STATE, state),
-  /** @param {(command: {action: string, mode: string, videoId: string, seconds?: number}) => void} callback */
-  onWidgetBridgeCommand: (callback) => {
-    const listener = (_, command) => callback(command)
-    ipcRenderer.on(IpcChannels.WIDGET_BRIDGE_COMMAND, listener)
-    return () => ipcRenderer.removeListener(IpcChannels.WIDGET_BRIDGE_COMMAND, listener)
-  },
-
   /**
    * @returns {Promise<string>}
    */

@@ -309,6 +309,10 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  nextVideoAvailable: {
+    type: Boolean,
+    default: false
+  },
   vrProjection: {
     type: String,
     default: null
@@ -954,6 +958,8 @@ const uiConfig = computed(() => {
 
   if (!props.watchingPlaylist) {
     removeFromArrayIfExists(uiConfig.controlPanelElements, 'ft_skip_previous')
+  }
+  if (!props.nextVideoAvailable) {
     removeFromArrayIfExists(uiConfig.controlPanelElements, 'ft_skip_next')
   }
 
