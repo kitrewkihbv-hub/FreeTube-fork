@@ -51,9 +51,7 @@ const ShakaError = shaka.util.Error
  * @property {SabrStreamState} sabrStreamState
  * @property {?TimeoutController} timeoutController
  * @property {?EventEmitterLike} eventEmitter
- * @property {number} cumulativeBackOffTimeMs
- * @property {number} cumulativeBackOffRequested
- * @property {number} cumulativeRetryDueToNextRequestPolicy
+ * @property {number} retryCount
  */
 /**
  * @typedef SabrStreamState
@@ -290,7 +288,6 @@ async function doRequest(
   const responseDataChunks = []
   let segmentComplete = false
   let shouldRetry = false
-  let shouldRetryDueToNextRequestPolicy = false
 
   let invalidPoToken = false
   let error
@@ -301,35 +298,29 @@ async function doRequest(
   }
 
   try {
-    let shouldReloadDueToBackoffLoop = false
-    if ((currentState.sabrStreamState.nextRequestPolicy?.backoffTimeMs || 0) > 0) {
-      const currentBackoffTimeMs = currentState.sabrStreamState.nextRequestPolicy.backoffTimeMs
-      currentState.eventEmitter.emit('backoff-requested', { backoffMs: currentBackoffTimeMs })
-      // Wait but can be aborted
-      await new Promise((resolve, reject) => {
-        setTimeout(resolve, currentBackoffTimeMs)
-        currentState.abortController.signal.addEventListener('abort', reject)
-      })
-      // Must reset AFTER waiting to avoid requested aborted
-      // Since long backoff time mostly happens on the start of video playback we only reset timeout once
-      // i.e. backoff time parts received will not reset timeout - counted as video loading issue
-      currentState.timeoutController?.resetTimeoutOnce()
-
-      currentState.cumulativeBackOffTimeMs += currentState.sabrStreamState.nextRequestPolicy.backoffTimeMs
-      currentState.cumulativeBackOffRequested += 1
-      const timeoutMs = operationInputs.request.retryParameters.timeout
-      // Detect infinite backoff loop by no. of times requested and cumulative time approaching timeout
-      if (currentState.cumulativeBackOffRequested >= 3 || (timeoutMs > 0 && timeoutMs <= (currentState.cumulativeBackOffTimeMs + currentBackoffTimeMs))) {
-        shouldReloadDueToBackoffLoop = true
-      }
-    }
-    if (shouldReloadDueToBackoffLoop || currentState.cumulativeRetryDueToNextRequestPolicy >= 100) {
-      // Fire fake reload event due to detecting retry loop
+    // Both redirects and policy-only responses count towards the per-segment limit.
+    // A policy without backoff previously allowed up to 100 immediate POSTs.
+    if (currentState.retryCount >= 8) {
       currentState.sabrStreamState.playerReloadRequested = true
-      if (!currentState.abortController.signal.aborted) {
-        currentState.abortController.abort()
-        currentState.eventEmitter.emit('reload')
-      }
+      console.warn('SABR: segment retry limit reached (no completed media segment).')
+      currentState.eventEmitter.emit('reload')
+      throw createRecoverableNetworkError(ShakaError.Code.OPERATION_ABORTED, operationInputs.uri, operationInputs.requestType)
+    }
+    const serverBackoffMs = currentState.sabrStreamState.nextRequestPolicy?.backoffTimeMs || 0
+    const backoffMs = serverBackoffMs > 0 ? serverBackoffMs : (currentState.retryCount > 0 ? 300 : 0)
+    if (backoffMs > 0) {
+      if (serverBackoffMs > 0) currentState.eventEmitter.emit('backoff-requested', { backoffMs })
+      await new Promise((resolve, reject) => {
+        const signal = currentState.abortController.signal
+        if (signal.aborted) { reject(new Error('aborted')); return }
+        const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve() }, backoffMs)
+        function onAbort() { clearTimeout(timer); reject(new Error('aborted')) }
+        signal.addEventListener('abort', onAbort, { once: true })
+      })
+      currentState.timeoutController?.resetTimeoutOnce()
+    }
+    if (currentState.sabrStreamState.playerReloadRequested) {
+      throw createRecoverableNetworkError(ShakaError.Code.OPERATION_ABORTED, operationInputs.uri, operationInputs.requestType)
     }
 
     const { itag, lastModified, xtags } = formatIdFromString(operationInputs.formatIdString)
@@ -398,9 +389,9 @@ async function doRequest(
           }
           case UMPPartId.NEXT_REQUEST_POLICY: {
             const nextRequestPolicy = decodePart(data, NextRequestPolicy)
+            if (!nextRequestPolicy) break
 
             shouldRetry = true
-            shouldRetryDueToNextRequestPolicy = true
 
             currentState.sabrStreamState.nextRequestPolicy = nextRequestPolicy
             currentState.abrRequest.streamerContext.playbackCookie = nextRequestPolicy?.playbackCookie
@@ -460,6 +451,7 @@ async function doRequest(
 
             // Whole video cannot be played
             currentState.sabrStreamState.playerReloadRequested = true
+            console.warn('SABR: server requested player reload.')
             if (!currentState.abortController.signal.aborted) {
               currentState.abortController.abort()
               currentState.eventEmitter.emit('reload')
@@ -479,6 +471,13 @@ async function doRequest(
 
     operationInputs.headersReceived({})
 
+    // Do not parse HTTP errors as UMP or let a policy hide them.
+    if (!response.ok) {
+      throw new ShakaError(
+        response.status === 401 || response.status === 403 || response.status === 429 ? ShakaError.Severity.CRITICAL : ShakaError.Severity.RECOVERABLE,
+        ShakaError.Category.NETWORK, ShakaError.Code.BAD_HTTP_STATUS, operationInputs.uri, response.status, '', {}, operationInputs.requestType, operationInputs.uri,
+      )
+    }
     const reader = response.body.getReader()
     let readObj = await reader.read()
 
@@ -490,6 +489,7 @@ async function doRequest(
       }
     }
   } catch (error) {
+    if (error instanceof ShakaError) throw error
     if (currentState.abortStatus.cancelled) {
       throw createRecoverableNetworkError(ShakaError.Code.OPERATION_ABORTED, operationInputs.uri, operationInputs.requestType)
     } else if (currentState.abortStatus.timedOut) {
@@ -522,11 +522,8 @@ async function doRequest(
       fromCache: false,
       originalRequest: operationInputs.request,
     }
-  } else if (shouldRetry) {
-    if (shouldRetryDueToNextRequestPolicy) {
-      // Only count on actual retry to avoid counting false positive (when segmentComplete
-      currentState.cumulativeRetryDueToNextRequestPolicy += 1
-    }
+  } else if (shouldRetry && !invalidPoToken && !error) {
+    currentState.retryCount += 1
 
     const { sabrContexts, unsentSabrContexts } = prepareSabrContexts(currentState.sabrStreamState)
 
@@ -818,9 +815,7 @@ export function setupSabrScheme(sabrData, getPlayer, getManifest, playerWidth, p
       sabrStreamState,
       timeoutController,
       eventEmitter,
-      cumulativeBackOffTimeMs: 0,
-      cumulativeBackOffRequested: 0,
-      cumulativeRetryDueToNextRequestPolicy: 0,
+      retryCount: 0,
     }
 
     const pendingRequest = doRequest(opInputs, currentState)

@@ -15,7 +15,7 @@
       crossorigin="anonymous"
       playsinline
       :style="{ transform: `scale(${videoWidth / 100}, ${videoHeight / 100})` }"
-      :autoplay="autoplayVideos || autoplayOverride ? true : null"
+      :autoplay="autoplayVideos ? true : null"
       :poster="thumbnail"
       @play="handlePlay"
       @pause="handlePause"
@@ -309,10 +309,6 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  nextVideoAvailable: {
-    type: Boolean,
-    default: false
-  },
   vrProjection: {
     type: String,
     default: null
@@ -444,7 +440,7 @@ const playerDimensions = computed(() => ({
 
 /** @type {import('vue').ComputedRef<boolean>} */
 const autoplayVideos = computed(() => {
-  return store.getters.getAutoplayVideos
+  return props.autoplayOverride || store.getters.getAutoplayVideos
 })
 
 /** @type {import('vue').ComputedRef<boolean>} */
@@ -958,8 +954,6 @@ const uiConfig = computed(() => {
 
   if (!props.watchingPlaylist) {
     removeFromArrayIfExists(uiConfig.controlPanelElements, 'ft_skip_previous')
-  }
-  if (!props.nextVideoAvailable) {
     removeFromArrayIfExists(uiConfig.controlPanelElements, 'ft_skip_next')
   }
 

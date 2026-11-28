@@ -75,9 +75,9 @@ jobs:
         run: |
           set -euo pipefail
           cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
-          This build returns to the mac-build-30 app baseline and removes the experimental port 8766 Dynamic Island bridge. After a SABR reload request, it tries a direct DASH stream when suitable audio and video formats are supplied, then may advance through existing player fallbacks. Repeated failures are bounded and paused playback is not automatically restarted. This is an experimental workaround, not a diagnosed fix; the affected videos and actual macOS playback have not been tested. Playback may still fail or stall.
+          This build returns to the mac-build-30 app baseline and removes build 39's control changes and experimental port 8766 Dynamic Island bridge. A bug in normal DASH generation could leave URLs undeciphered and without the video proof token; the existing isolated YouTube.js player is now attached to the per-watch DASH session. Offline tests use a synthetic player script and do not verify YouTube's current live player code.
 
-          A Next button appears for available recommendations or playlists. The player autoplay toggle now saves its setting; the new default autoplay countdown is zero, while existing saved countdowns remain unchanged. Actual load time still depends on network and token generation. The isolated proof-token session now returns to the system proxy after an explicit app proxy is disabled; Mac VPN and proxy behavior remain unverified.
+          For SABR media HTTP 403 and SABR reload requests, the player will retry at most twice and tries direct DASH if complete compatible audio and video formats are available. Without those formats it continues using SABR. Per-segment policy and redirect requests are bounded and HTTP status errors are retained. This is an experimental workaround, not a confirmed fix for the 59-second stall; Mac playback, real accounts, the reported videos, and VPN behavior remain untested. Playback can still fail.
 
           The macOS Übersicht title file at /tmp/mactube_np.txt now has a fourth thumbnail URL field and is updated on in-page navigation. PLAYING means the window has a nonempty page title, not necessarily that media is playing. Page titles can be recorded outside Music. Opening the thumbnail URL contacts YouTube. The file is removed on window close or quit when possible.
 
@@ -93,7 +93,7 @@ jobs:
 
           Download arm64 for Apple Silicon, or the file without arm64 for Intel. MacTube shares the existing FreeTube data directory, so back up your data before upgrading.
           NOTES
-          gh release create mac-build-39 assets/MacTube-0.26.0.dmg assets/MacTube-0.26.0-arm64.dmg assets/MacTube-0.26.0-mac.zip assets/MacTube-0.26.0-arm64-mac.zip --draft --target "$GITHUB_SHA" --title 'MacTube (mac-build-39)' --notes-file "$RUNNER_TEMP/release-notes.md"
+          gh release create mac-build-40 assets/MacTube-0.26.0.dmg assets/MacTube-0.26.0-arm64.dmg assets/MacTube-0.26.0-mac.zip assets/MacTube-0.26.0-arm64-mac.zip --draft --target "$GITHUB_SHA" --title 'MacTube (mac-build-40)' --notes-file "$RUNNER_TEMP/release-notes.md"
 
   scan-and-publish:
     needs: mac-release
@@ -113,7 +113,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p assets
-          gh release download mac-build-39 --pattern '*.zip' --dir assets
+          gh release download mac-build-40 --pattern '*.zip' --dir assets
           test -f assets/MacTube-0.26.0-mac.zip
           test -f assets/MacTube-0.26.0-arm64-mac.zip
       - name: Install ClamAV and update signatures
@@ -141,4 +141,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-        run: gh release edit mac-build-39 --draft=false
+        run: gh release edit mac-build-40 --draft=false

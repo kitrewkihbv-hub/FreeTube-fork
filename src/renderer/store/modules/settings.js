@@ -169,7 +169,7 @@ const state = {
   secColor: 'Purple',
   defaultAutoplayInterruptionIntervalHours: 3,
   defaultCaptionSettings: '{}',
-  defaultInterval: 0,
+  defaultInterval: 5,
   defaultPlayback: 1,
   defaultProfile: MAIN_PROFILE_ID,
   defaultQuality: '720',

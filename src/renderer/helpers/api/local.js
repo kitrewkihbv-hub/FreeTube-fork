@@ -2434,6 +2434,11 @@ export async function getLocalVideoInfo(id, { playerFallbackStage = 0 } = {}) {
     htmlExtracts.playerId
   )
 
+  // VideoInfo.toDash() deciphers adaptive URLs using its Actions session's
+  // player. This per-watch session is constructed without one, so attach the
+  // same player that will receive this video's proof token below.
+  htmlExtracts.session.player = player
+
   // based on the videoId
   let contentPoToken
 

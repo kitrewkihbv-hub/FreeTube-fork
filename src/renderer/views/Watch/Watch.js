@@ -43,7 +43,7 @@ import {
 } from '../../helpers/api/invidious'
 import { sortCaptions } from '../../helpers/player/utils'
 import { MANIFEST_TYPE_SABR } from '../../helpers/player/SabrManifestParser'
-import { hasDirectDashUrl, canTryDirectDash, fallbackStageFor } from '../../helpers/player/sabrRecovery.cjs'
+import { isDirectDashFormat, hasDirectDashPair } from '../../helpers/player/directDashRecovery.cjs'
 import { useI18n } from 'vue-i18n'
 
 /**
@@ -83,8 +83,6 @@ export default defineComponent({
   },
   beforeRouteLeave: async function (to, from, next) {
     this.widgetControlsActive = false
-    this.sabrDeferredVideoId = null
-    this.sabrResumeVideoId = null
     this.stopLocalWidgetControls?.()
     if (process.env.IS_ELECTRON) window.ftElectron.updateLocalPlayerState(null)
     this.handleRouteChange()
@@ -200,10 +198,10 @@ export default defineComponent({
       isReloadingView: false,
       selectedPlayer: 'web',
       sabrRecoveryVideoId: null,
-      sabrRecoveryCount: 0,
+      sabrRecoveryAttempts: 0,
       sabrRecoveryPosition: 0,
-      sabrRecoveryInFlight: false,
-      sabrDeferredVideoId: null,
+      sabrRecoveryPending: false,
+      sabrRecoveryDeferred: false,
       sabrResumeVideoId: null,
     }
   },
@@ -364,21 +362,17 @@ export default defineComponent({
     errorMessage() { this.syncLocalPlayerState() },
     musicPlaying(playing) {
       this.syncLocalPlayerState()
-      if (playing) {
-        if (this.sabrResumeVideoId === this.videoId) this.sabrResumeVideoId = null
-        if (this.sabrDeferredVideoId === this.videoId) this.onSabrReloadRequested()
-      }
+      if (playing && this.sabrResumeVideoId === this.videoId) this.sabrResumeVideoId = null
+      if (playing && this.sabrRecoveryDeferred && this.$route.params.id === this.videoId) this.onSabrReloadRequested()
     },
     musicShuffle() { this.syncLocalPlayerState() },
-    autoplayNextRecommendedVideoByDefault(value) { this.autoplayNextRecommendedVideo = value },
-    autoplayNextPlaylistVideoByDefault(value) { this.autoplayNextPlaylistVideo = value },
     watchingPlaylist(value) {
       if (!value) this.musicShuffle = false
       this.syncLocalPlayerState()
     },
     async $route() {
       if (this.$route.params.id !== this.videoId) {
-        this.sabrDeferredVideoId = null
+        this.sabrRecoveryDeferred = false
         this.sabrResumeVideoId = null
       }
       this.syncLocalPlayerState()
@@ -438,7 +432,7 @@ export default defineComponent({
       if (Number.isFinite(seconds)) this.$refs.player?.setCurrentTime(seconds)
     },
     musicTime(seconds) { return formatDurationAsTimestamp(Math.max(0, Math.floor(seconds || 0))) },
-    async reloadView(playerFallbackStage = 0, recovery = null) {
+    async reloadView(playerFallbackStage = 0, recoveryTimestamp = null) {
       if (this.isReloadingView) { return }
 
       try {
@@ -459,13 +453,13 @@ export default defineComponent({
         this.activeFormat = this.defaultVideoFormat
 
         this.checkIfTimestamp()
-        if (recovery && Number.isFinite(recovery.timestamp)) this.oneTimeTimestamp = recovery.timestamp
+        if (Number.isFinite(recoveryTimestamp)) this.oneTimeTimestamp = recoveryTimestamp
         this.checkIfPlaylist()
         this.setViewingModeOnRouteChange()
 
         switch (this.backendPreference) {
           case 'local':
-            await this.getVideoInformationLocal(playerFallbackStage, recovery?.preferDirectDash === true)
+            await this.getVideoInformationLocal(playerFallbackStage, recoveryTimestamp !== null)
             break
           case 'invidious':
             this.getVideoInformationInvidious()
@@ -592,7 +586,7 @@ export default defineComponent({
       }
     },
 
-    getVideoInformationLocal: async function (playerFallbackStage = 0, preferDirectDash = false) {
+    getVideoInformationLocal: async function (playerFallbackStage = 0, tryDirectRecovery = false) {
       if (this.firstLoad) {
         this.isLoading = true
       }
@@ -991,16 +985,17 @@ export default defineComponent({
               })
               ?.projection_type ?? null
 
-            let directDash = null
-            if (preferDirectDash && canTryDirectDash(result.streaming_data.adaptive_formats)) {
+            let directManifest = null
+            if (tryDirectRecovery && hasDirectDashPair(result.streaming_data.adaptive_formats)) {
               try {
-                directDash = await this.createLocalDashManifest(result, false, true)
+                directManifest = await this.createLocalDashManifest(result, false, true)
               } catch {
-                console.warn('Direct DASH recovery was unavailable; trying the existing SABR stream.')
+                console.warn('SABR: direct DASH recovery was unavailable.')
               }
             }
-            if (directDash) {
-              this.manifestSrc = directDash
+            if (directManifest) {
+              console.warn('SABR: trying direct DASH recovery.')
+              this.manifestSrc = directManifest
               this.manifestMimeType = MANIFEST_TYPE_DASH
             } else if (
               videoInfo.info.streaming_data?.server_abr_streaming_url &&
@@ -1327,8 +1322,8 @@ export default defineComponent({
      */
     handleTimeUpdate: function (currentSeconds) {
       this.musicCurrentTime = currentSeconds
-      if (this.sabrRecoveryCount && this.sabrRecoveryVideoId === this.videoId && currentSeconds >= this.sabrRecoveryPosition + 60) {
-        this.sabrRecoveryCount = 0
+      if (this.sabrRecoveryVideoId === this.videoId && this.sabrRecoveryAttempts > 0 && currentSeconds >= this.sabrRecoveryPosition + 60) {
+        this.sabrRecoveryAttempts = 0
       }
       this.updateCurrentChapter(currentSeconds)
       if (this.rememberHistory && !this.isUpcoming && this.$refs.player?.hasLoaded && !this.$refs.player.isPaused()) {
@@ -1648,9 +1643,8 @@ export default defineComponent({
     },
 
     // Skip to the next video if in a playlist
-    // else the next recommended video, even when autoplay is off
+    // else next recommended video if autoplay enabled
     handleSkipToNext: function () {
-      if (this.playNextTimeout) this.abortAutoplayCountdown(true)
       if (this.watchingPlaylist) {
         this.$refs.watchVideoPlaylist?.playNextVideo()
       } else if (!this.hideRecommendedVideos && this.nextRecommendedVideo) {
@@ -1706,6 +1700,15 @@ export default defineComponent({
             return
           case 403:
             this.handleWatchProgressAutoSaveWhenProgressEnabled()
+
+            // A mid-playback SABR media 403 can otherwise strand the player.
+            // Retry at most twice, preferring complete direct DASH formats when available.
+            if (this.sabrData && this.videoPlayerLoaded && !this.isReloadingView &&
+                !this.sabrRecoveryPending && (this.sabrRecoveryVideoId !== this.videoId || this.sabrRecoveryAttempts < 2)) {
+              console.warn('SABR: media request was rejected with HTTP 403.')
+              this.onSabrReloadRequested()
+              return
+            }
 
             // A playable response may fail at the media server. Try the next
             // client once: authenticated TV embed → anonymous embed → VR → Web.
@@ -1782,7 +1785,7 @@ export default defineComponent({
      */
     createLocalDashManifest: async function (videoInfo, includeThumbnails = false, directOnly = false) {
       const xmlData = await videoInfo.toDash({
-        format_filter: directOnly ? format => !hasDirectDashUrl(format) : undefined,
+        format_filter: directOnly ? format => !isDirectDashFormat(format) : undefined,
         manifest_options: {
           include_thumbnails: includeThumbnails,
         },
@@ -2067,13 +2070,10 @@ export default defineComponent({
         this.abortAutoplayCountdown()
       }
 
-      const enabled = !this.autoplayEnabled
       if (this.watchingPlaylist) {
-        this.autoplayNextPlaylistVideo = enabled
-        this.$store.dispatch('updateAutoplayPlaylists', enabled)
+        this.autoplayNextPlaylistVideo = !this.autoplayEnabled
       } else {
-        this.autoplayNextRecommendedVideo = enabled
-        this.$store.dispatch('updatePlayNextVideo', enabled)
+        this.autoplayNextRecommendedVideo = !this.autoplayEnabled
       }
     },
 
@@ -2121,50 +2121,45 @@ export default defineComponent({
     },
 
     onManualReloadRequested: throttle(async function () {
-      this.sabrDeferredVideoId = null
+      this.sabrRecoveryAttempts = 0
+      this.sabrRecoveryDeferred = false
       this.sabrResumeVideoId = null
-      this.sabrRecoveryCount = 0
       await this.saveWatchProgressForReload()
       await this.reloadView()
     }, 1000),
 
     async onSabrReloadRequested() {
-      if (this.isReloadingView || this.sabrRecoveryInFlight || this.$route.params.id !== this.videoId) return
+      if (this.isReloadingView || this.sabrRecoveryPending || this.$route.params.id !== this.videoId) return
       const player = this.$refs.player
       if (!player) return
-      const videoId = this.videoId
-      if (this.sabrRecoveryVideoId !== videoId) {
-        this.sabrRecoveryVideoId = videoId
-        this.sabrRecoveryCount = 0
+      if (this.sabrRecoveryVideoId !== this.videoId) {
+        this.sabrRecoveryVideoId = this.videoId
+        this.sabrRecoveryAttempts = 0
       }
-      // SABR has aborted requests. Avoid starting a paused player unexpectedly.
       if (player.hasLoaded && player.isPaused()) {
-        this.sabrDeferredVideoId = videoId
+        this.sabrRecoveryDeferred = true
         return
       }
-      this.sabrDeferredVideoId = null
-      if (this.sabrRecoveryCount >= 3) {
-        showToast('The video stream could not recover. Try reloading manually or another backend.', 10000)
+      this.sabrRecoveryDeferred = false
+      if (this.sabrRecoveryAttempts >= 2) {
+        console.warn('SABR: automatic recovery stopped after repeated reloads.')
+        showToast('Playback could not recover. Try reloading the player manually.', 10000)
         return
       }
-      const timestamp = this.getTimestamp()
-      const stage = fallbackStageFor(this.selectedPlayer, this.sabrRecoveryCount > 0)
-      this.sabrRecoveryCount++
-      this.sabrRecoveryPosition = timestamp
-      this.sabrResumeVideoId = player.isPaused() ? null : videoId
-      this.sabrRecoveryInFlight = true
+      const id = this.videoId
+      const position = this.getTimestamp()
+      this.sabrRecoveryAttempts++
+      this.sabrRecoveryPosition = position
+      this.sabrResumeVideoId = player.isPaused() ? null : id
+      this.sabrRecoveryPending = true
       try {
-        // Try direct DASH only after SABR fails and only if complete formats exist.
-        // Avoid changing the route, which otherwise triggers another page reload.
-        await this.reloadView(stage, { timestamp, preferDirectDash: true })
+        // Pass the position without rewriting the route and triggering its watcher.
+        await this.reloadView(0, position)
       } catch {
         this.sabrResumeVideoId = null
-        console.warn('Playback recovery failed.')
-        if (this.videoId === videoId && this.$route.params.id === videoId) {
-          showToast('Could not reload the video stream. Try reloading manually.', 10000)
-        }
+        if (this.$route.params.id === id) showToast('Could not reload playback. Try reloading manually.', 10000)
       } finally {
-        this.sabrRecoveryInFlight = false
+        this.sabrRecoveryPending = false
       }
     },
 
